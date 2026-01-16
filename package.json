@@ -1,0 +1,29 @@
+{
+  "name": "mote",
+  "version": "0.1.0",
+  "description": "A beginner-friendly browser automation framework powered by AI.",
+  "type": "module",
+  "main": "src/mote.ts",
+  "scripts": {
+    "start": "tsx src/mote.ts",
+    "dev": "tsx watch src/mote.ts",
+    "test:browser": "tsx src/browser.ts",
+    "test:perceive": "tsx src/perceive.ts",
+    "test:reason": "tsx src/reason.ts"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "dotenv": "^16.4.5",
+    "jsdom": "^24.1.0",
+    "openai": "^4.52.0",
+    "playwright": "^1.45.0",
+    "turndown": "^7.2.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^20.14.9",
+    "@types/turndown": "^5.0.5",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.2"
+  }
+}
