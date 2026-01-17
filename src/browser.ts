@@ -279,7 +279,7 @@ export async function takeScreenshot(page: Page, path: string): Promise<void> {
 // TEST: Run this file directly to verify browser works
 // Test config (hardcoded for standalone testing)
 // -----------------------------------------------------------------------------
-// Usage: run test:browser (shortcut for tsx src/browser.ts)
+// Usage: npm run test:browser (shortcut for tsx src/browser.ts)
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   console.log('🧪 Testing browser module...\n');
