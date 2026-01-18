@@ -14,6 +14,31 @@
 // =============================================================================
 
 // -----------------------------------------------------------------------------
+// TIMESTAMP HELPERS
+// -----------------------------------------------------------------------------
+// Date objects don't serialize well to JSON. We use ISO 8601 strings instead.
+
+/**
+ * Create a timestamp in ISO 8601 format.
+ * Use this instead of `new Date()` for SessionPlan and StepResult timestamps.
+ *
+ * @returns ISO 8601 timestamp string (e.g., "2024-01-18T12:34:56.789Z")
+ */
+export function createTimestamp(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * Parse an ISO 8601 timestamp string into a Date object.
+ *
+ * @param timestamp - ISO 8601 string
+ * @returns Date object
+ */
+export function parseTimestamp(timestamp: string): Date {
+  return new Date(timestamp);
+}
+
+// -----------------------------------------------------------------------------
 // WEB ACTIONS
 // -----------------------------------------------------------------------------
 // These are the primitive browser operations the agent can perform.
@@ -65,7 +90,7 @@ export interface Action {
 //   case 'ACTION': // execute action
 //   case 'REPLAN': // regenerate plan
 //   case 'RETRY_PERCEPTION': // re-scrape page
-//   case 'SUCCESS': // goal achieved
+//   case 'GOAL_SUCCESS': // goal achieved
 //   case 'FAIL': // unrecoverable error
 // }
 
@@ -99,7 +124,7 @@ export interface ThinkResultRetryPerception {
 
 /** Goal successfully achieved */
 export interface ThinkResultGoalSuccess {
-  type: 'SUCCESS';
+  type: 'GOAL_SUCCESS';
   finalAnswer: string;
 }
 
@@ -178,11 +203,11 @@ export interface SessionPlan {
   /** All cycles (fixed count from initial analysis, steps grow dynamically) */
   cycles: Cycle[];
 
-  /** When the session started */
-  startedAt: Date;
+  /** When the session started (ISO 8601 string) */
+  startedAt: string;
 
-  /** Last time the plan was updated */
-  lastUpdatedAt: Date;
+  /** Last time the plan was updated (ISO 8601 string) */
+  lastUpdatedAt: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -343,24 +368,61 @@ export interface MoteConfig {
 }
 
 // -----------------------------------------------------------------------------
-// HUMAN-IN-THE-LOOP CONFIGURATION
+// HUMAN-IN-THE-LOOP CONFIGURATION (v2)
 // -----------------------------------------------------------------------------
 
 /**
- * Confirmation modes for human oversight.
- *
- * - 'all': Confirm every action (maximum control)
- * - 'destructive': Only confirm clicks and form submissions (balanced)
- * - 'none': Fully autonomous (use with caution)
+ * Points where user can intervene in the agent loop.
+ * Each point represents a meaningful moment for potential user input.
  */
-export type ConfirmMode = 'all' | 'destructive' | 'none';
+export type InterventionPoint =
+  | 'PLAN_PREVIEW' // Before execution starts - review session plan
+  | 'CYCLE_START' // Before each cycle begins
+  | 'ACTION' // Before browser action execution
+  | 'TERMINAL' // When LLM says GOAL_SUCCESS/FAIL
+  | 'REPLAN' // When LLM wants to change approach
+  | 'REPERCEIVE' // When LLM wants to re-scan page
+  | 'CYCLE_END' // After cycle completes
+  | 'ERROR'; // When action execution fails
+
+/**
+ * Engagement modes for human oversight.
+ * Each mode enables a different set of intervention points.
+ * The mapping from mode to points is defined in mote.ts.
+ *
+ * - 'autonomous': No intervention points (fully automatic)
+ * - 'minimal': Only TERMINAL (confirm before accepting final result)
+ * - 'standard': ACTION + TERMINAL + ERROR (balanced control)
+ * - 'supervised': PLAN_PREVIEW + CYCLE_START + ACTION + TERMINAL + ERROR
+ * - 'full': All intervention points enabled
+ */
+export type EngagementMode =
+  | 'autonomous'
+  | 'minimal'
+  | 'standard'
+  | 'supervised'
+  | 'full';
+
+/**
+ * User's response at an intervention point.
+ * Discriminated union - check `type` to determine response kind.
+ */
+export type InterventionResponse =
+  | { type: 'approve' } // Continue as planned
+  | { type: 'reject'; reason?: string } // Don't do this, try alternative
+  | { type: 'modify'; instruction: string } // User instruction → LLM rethink
+  | { type: 'skip' } // Skip this step/cycle
+  | { type: 'force_success'; message: string } // Override to success now
+  | { type: 'force_fail'; message: string } // Override to failure now
+  | { type: 'pause' } // Save state, exit (resume later)
+  | { type: 'quit' }; // Stop immediately
 
 /**
  * Human oversight configuration.
  */
 export interface HumanControlConfig {
-  /** Which actions require confirmation */
-  confirmMode: ConfirmMode;
+  /** Engagement mode - determines which intervention points are active */
+  mode: EngagementMode;
 
   /** Pause between steps (ms) for observation */
   stepPause: number;
@@ -393,8 +455,8 @@ export interface StepResult {
   /** Page state after the action */
   pageStateAfter?: PageState;
 
-  /** When this step was executed */
-  timestamp: Date;
+  /** When this step was executed (ISO 8601 string) */
+  timestamp: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -464,7 +526,12 @@ export interface BrowserConfig {
   slowMo: number;
 
   /** Default timeout for operations (ms) */
-  timeout: number;
+  timeout: {
+    default: number;
+    navigation: number;
+    element: number;
+    postNavDelay: number;
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -553,4 +620,82 @@ export function getProgress(plan: SessionPlan): string {
   return `Cycle ${cycleNum}/${totalCycles}, Step ${stepNum}/${
     totalSteps || '?'
   }`;
+}
+
+// -----------------------------------------------------------------------------
+// TYPE GUARDS
+// -----------------------------------------------------------------------------
+
+/**
+ * Type guard for ACTION result.
+ *
+ * @example
+ * if (isActionResult(result)) {
+ *   // result.action is now accessible
+ *   console.log(result.action.type);
+ * }
+ */
+export function isActionResult(
+  result: ThinkResult,
+): result is ThinkResultAction {
+  return result.type === 'ACTION';
+}
+
+/**
+ * Type guard for GOAL_SUCCESS result.
+ */
+export function isGoalSuccess(
+  result: ThinkResult,
+): result is ThinkResultGoalSuccess {
+  return result.type === 'GOAL_SUCCESS';
+}
+
+/**
+ * Type guard for FAIL result.
+ */
+export function isFailure(result: ThinkResult): result is ThinkResultFail {
+  return result.type === 'FAIL';
+}
+
+/**
+ * Type guard for REPLAN result.
+ */
+export function isReplan(result: ThinkResult): result is ThinkResultReplan {
+  return result.type === 'REPLAN';
+}
+
+/**
+ * Type guard for RETRY_PERCEPTION result.
+ */
+export function isRetryPerception(
+  result: ThinkResult,
+): result is ThinkResultRetryPerception {
+  return result.type === 'RETRY_PERCEPTION';
+}
+
+/**
+ * Type guard for 'approve' intervention response.
+ */
+export function isApproveResponse(
+  response: InterventionResponse,
+): response is Extract<InterventionResponse, { type: 'approve' }> {
+  return response.type === 'approve';
+}
+
+/**
+ * Type guard for 'modify' intervention response.
+ */
+export function isModifyResponse(
+  response: InterventionResponse,
+): response is Extract<InterventionResponse, { type: 'modify' }> {
+  return response.type === 'modify';
+}
+
+/**
+ * Type guard for 'reject' intervention response.
+ */
+export function isRejectResponse(
+  response: InterventionResponse,
+): response is Extract<InterventionResponse, { type: 'reject' }> {
+  return response.type === 'reject';
 }

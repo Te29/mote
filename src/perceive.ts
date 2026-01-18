@@ -57,7 +57,10 @@
 // - JSDOM creates a separate virtual DOM (doesn't touch the real page)
 // - page.evaluate() runs in the actual browser
 //
-// // Exported Functions:
+// Exported Functions:
+// - perceive(page): Main function - returns PageState with markdown and elements
+// - extractInteractiveElements(page): Find all clickable/interactive elements
+// - formatElementsForAI(elements): Format element list as string for AI prompt
 // =============================================================================
 
 import { JSDOM } from 'jsdom';
@@ -66,6 +69,7 @@ import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import type { Page } from 'playwright';
 import type { PageState, ElementInfo } from './types.js';
+import { getPageContent } from './browser.js';
 
 // -----------------------------------------------------------------------------
 // TURNDOWN CONFIGURATION
@@ -121,12 +125,8 @@ turndown.addRule('simplifyImages', {
  * console.log(state.elements)  // Clickable elements
  */
 export async function perceive(page: Page): Promise<PageState> {
-  // Get basic page info
-  const url = page.url();
-  const title = await page.title();
-
-  // Get raw HTML
-  const html = await page.content();
+  // Get page info and HTML using browser module
+  const { url, title, html } = await getPageContent(page);
 
   // Extract and convert content
   const markdown = extractAndConvert(html, url);
@@ -521,12 +521,14 @@ export function formatElementsForAI(elements: ElementInfo[]): string {
 // Usage: npm run test:perceive (shortcut for npx tsx src/perceive.ts)
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  // Import browser module for testing
   const { launchBrowser, navigateTo, closeBrowser } = await import(
     './browser.js'
   );
 
-  console.log('🧪 Testing perceive module...\n');
+  console.clear();
+  console.log('='.repeat(60));
+  console.log(' 👁️  MOTE PERCEPTION TEST');
+  console.log('='.repeat(60));
 
   const session = await launchBrowser({
     headless: false,
@@ -540,29 +542,54 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
   });
 
   try {
-    await navigateTo(session.page, 'https://www.google.com');
+    const targetUrl = 'https://www.google.com';
+    console.log(`\n🚀 Navigating to: ${targetUrl}...`);
+    await navigateTo(session.page, targetUrl);
 
     // Perceive the page
     const state = await perceive(session.page);
 
-    console.log('\n📄 Page State:');
-    console.log(`   URL: ${state.url}`);
-    console.log(`   Title: ${state.title}`);
-    console.log(`\n📝 Markdown (first 500 chars):`);
-    console.log(state.markdown.substring(0, 500));
+    // 1. METADATA
+    console.log(`\n📍 [METADATA]`);
+    console.log(`   Title:  "${state.title}"`);
+    console.log(`   URL:    ${state.url}`);
 
-    console.log(`\n🎯 Interactive Elements (${state.elements.length} found):`);
-    console.log(formatElementsForAI(state.elements.slice(0, 10))); // First 10
+    // 2. READING MATERIAL (Markdown)
+    console.log(`\n📄 [READING MATERIAL] (Markdown Content)`);
+    console.log(`   Length: ${state.markdown.length} chars`);
+    console.log('-'.repeat(40));
+    console.log(
+      state.markdown.substring(0, 300).replace(/\n/g, '\n   ') +
+        '\n   ... [truncated]'
+    );
+    console.log('-'.repeat(40));
 
-    if (state.elements.length > 10) {
-      console.log(`   ... and ${state.elements.length - 10} more`);
+    // 3. CONTROL PANEL (Elements)
+    console.log(`\n🕹️  [CONTROL PANEL] (Interactive Elements)`);
+    console.log(`   Found: ${state.elements.length} clickable items`);
+    console.log(`   Inspecting first 5 items to verify AI match:\n`);
+
+    state.elements.slice(0, 5).forEach((el) => {
+      // We print the "AI View" and the "System View" side by side
+      // to ensure the selector logic matches the human description.
+      console.log(`   [${el.index}] 🏷️  TYPE: <${el.tag}>`);
+      console.log(`       👀 AI SEES:  ${formatElementsForAI([el])}`);
+      console.log(`       🤖 SYS USES: ${el.selector}`);
+      console.log('');
+    });
+
+    if (state.elements.length > 5) {
+      console.log(
+        `   ... and ${state.elements.length - 5} more elements hidden.`
+      );
     }
 
-    // Wait so you can see the browser
-    await session.page.waitForTimeout(3000);
+    await session.page.waitForTimeout(2000);
+  } catch (error) {
+    console.error('❌ Test failed:', error);
   } finally {
     await closeBrowser(session.browser);
   }
 
-  console.log('\n✅ Perceive test complete!');
+  console.log('\n✅ Test execution finished.');
 }
