@@ -185,6 +185,21 @@ export interface Cycle {
 }
 
 /**
+ * Learned strategy from first cycle, used to compress prompts for repeat cycles.
+ * Extracted after the first cycle completes successfully.
+ */
+export interface CycleStrategy {
+  /** Short description of the repeating pattern */
+  pattern: string;
+
+  /** Typical step sequence observed in first cycle */
+  stepSequence: string[];
+
+  /** Key element types/patterns to look for */
+  keyElements: string[];
+}
+
+/**
  * Session-level plan tracking overall progress.
  * Created once at session start, updated throughout execution.
  *
@@ -208,6 +223,9 @@ export interface SessionPlan {
 
   /** Last time the plan was updated (ISO 8601 string) */
   lastUpdatedAt: string;
+
+  /** Learned strategy from first successful cycle (enables compressed prompts) */
+  cycleStrategy?: CycleStrategy;
 }
 
 // -----------------------------------------------------------------------------
@@ -532,6 +550,29 @@ export interface BrowserConfig {
     element: number;
     postNavDelay: number;
   };
+}
+
+// -----------------------------------------------------------------------------
+// PROMPT TOKEN LIMITS
+// -----------------------------------------------------------------------------
+// Configuration for controlling prompt size to fit model context windows.
+
+/**
+ * Configuration for prompt token limits.
+ * Used by prompt.ts to control how much content is included in prompts.
+ */
+export interface PromptTokenLimits {
+  /** Max tokens for markdown content (default: 1500) */
+  markdownTokens: number;
+
+  /** Max tokens for elements section (default: 2000) */
+  elementsTokens: number;
+
+  /** Max number of elements to include (default: 50) */
+  maxElements: number;
+
+  /** Max tokens for history section (default: 200) */
+  historyTokens: number;
 }
 
 // -----------------------------------------------------------------------------

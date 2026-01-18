@@ -60,7 +60,6 @@
 // Exported Functions:
 // - perceive(page): Main function - returns PageState with markdown and elements
 // - extractInteractiveElements(page): Find all clickable/interactive elements
-// - formatElementsForAI(elements): Format element list as string for AI prompt
 // =============================================================================
 
 import { JSDOM } from 'jsdom';
@@ -280,7 +279,7 @@ function simplifyHtml(document: Document): string {
  * @returns Array of ElementInfo objects
  */
 export async function extractInteractiveElements(
-  page: Page
+  page: Page,
 ): Promise<ElementInfo[]> {
   // ---------------------------------------------------------------------------
   // What makes an element "interactive"?
@@ -470,60 +469,14 @@ function buildSelector(el: {
 }
 
 // -----------------------------------------------------------------------------
-// FORMAT ELEMENTS FOR AI
-// -----------------------------------------------------------------------------
-
-/**
- * Format element list as a string for the AI prompt.
- *
- * @param elements - Array of ElementInfo
- * @returns Formatted string
- *
- * @example
- * // Output:
- * // [1] input (text): "Search Google or type a URL" [placeholder="Search..."]
- * // [2] button: "Google Search"
- * // [3] link: "Gmail" [href="https://mail.google.com"]
- */
-export function formatElementsForAI(elements: ElementInfo[]): string {
-  if (elements.length === 0) {
-    return 'No interactive elements found on this page.';
-  }
-
-  return elements
-    .map((el) => {
-      let line = `[${el.index}] ${el.tag}`;
-
-      // Add input type if present
-      if (el.inputType && el.inputType !== 'text') {
-        line += ` (${el.inputType})`;
-      }
-
-      // Add text/description
-      line += `: "${el.text}"`;
-
-      // Add key attributes
-      const keyAttrs = ['href', 'placeholder', 'name'];
-      for (const attr of keyAttrs) {
-        if (el.attributes[attr]) {
-          line += ` [${attr}="${el.attributes[attr]}"]`;
-        }
-      }
-
-      return line;
-    })
-    .join('\n');
-}
-
-// -----------------------------------------------------------------------------
 // TEST: Run this file directly to verify perceive works
 // -----------------------------------------------------------------------------
 // Usage: npm run test:perceive (shortcut for npx tsx src/perceive.ts)
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  const { launchBrowser, navigateTo, closeBrowser } = await import(
-    './browser.js'
-  );
+  const { launchBrowser, navigateTo, closeBrowser } =
+    await import('./browser.js');
+  const { formatElementsForAI } = await import('./prompt.js');
 
   console.clear();
   console.log('='.repeat(60));
@@ -560,7 +513,7 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
     console.log('-'.repeat(40));
     console.log(
       state.markdown.substring(0, 300).replace(/\n/g, '\n   ') +
-        '\n   ... [truncated]'
+        '\n   ... [truncated]',
     );
     console.log('-'.repeat(40));
 
@@ -580,7 +533,7 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
 
     if (state.elements.length > 5) {
       console.log(
-        `   ... and ${state.elements.length - 5} more elements hidden.`
+        `   ... and ${state.elements.length - 5} more elements hidden.`,
       );
     }
 
