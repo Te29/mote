@@ -1,5 +1,5 @@
 // =============================================================================
-// PERCEIVE MODULE
+// OBSERVE MODULE
 // =============================================================================
 //
 // This module is the agent's "eyes" - it transforms raw HTML into a format
@@ -58,7 +58,7 @@
 // - page.evaluate() runs in the actual browser
 //
 // Exported Functions:
-// - perceive(page): Main function - returns PageState with markdown and elements
+// - observe(page): Main function - returns PageState with markdown and elements
 // - extractInteractiveElements(page): Find all clickable/interactive elements
 // =============================================================================
 
@@ -112,18 +112,18 @@ turndown.addRule('simplifyImages', {
 // -----------------------------------------------------------------------------
 
 /**
- * Perceive the current page - extract content and interactive elements.
+ * Observe the current page - extract content and interactive elements.
  * This is the main function called by the agent loop.
  *
  * @param page - Playwright page object
  * @returns PageState with markdown content and element list
  *
  * @example
- * const state = await perceive(page)
+ * const state = await observe(page)
  * console.log(state.markdown)  // Clean content
  * console.log(state.elements)  // Clickable elements
  */
-export async function perceive(page: Page): Promise<PageState> {
+export async function observe(page: Page): Promise<PageState> {
   // Get page info and HTML using browser module
   const { url, title, html } = await getPageContent(page);
 
@@ -469,9 +469,9 @@ function buildSelector(el: {
 }
 
 // -----------------------------------------------------------------------------
-// TEST: Run this file directly to verify perceive works
+// TEST: Run this file directly to verify observe works
 // -----------------------------------------------------------------------------
-// Usage: npm run test:perceive (shortcut for npx tsx src/perceive.ts)
+// Usage: npm run test:observe (shortcut for npx tsx src/observe.ts)
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   const { launchBrowser, navigateTo, closeBrowser } =
@@ -480,7 +480,7 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
 
   console.clear();
   console.log('='.repeat(60));
-  console.log(' 👁️  MOTE PERCEPTION TEST');
+  console.log(' 👁️  MOTE OBSERVE TEST');
   console.log('='.repeat(60));
 
   const session = await launchBrowser({
@@ -499,8 +499,8 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
     console.log(`\n🚀 Navigating to: ${targetUrl}...`);
     await navigateTo(session.page, targetUrl);
 
-    // Perceive the page
-    const state = await perceive(session.page);
+    // Observe the page
+    const state = await observe(session.page);
 
     // 1. METADATA
     console.log(`\n📍 [METADATA]`);

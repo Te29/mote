@@ -365,8 +365,8 @@ export interface ExecutionMetrics {
   consecutiveFailures: number;
   /** Number of times replanned in current cycle */
   replanCount: number;
-  /** Number of times re-perceived in current cycle */
-  reperceiveCount: number;
+  /** Number of times re-observed in current cycle */
+  reobserveCount: number;
 }
 
 /**
@@ -486,8 +486,8 @@ export function formatExecutionMetrics(metrics: ExecutionMetrics): string {
   if (metrics.replanCount > 0) {
     items.push(`Replanned ${metrics.replanCount} time(s) this cycle`);
   }
-  if (metrics.reperceiveCount > 0) {
-    items.push(`Re-perceived ${metrics.reperceiveCount} time(s)`);
+  if (metrics.reobserveCount > 0) {
+    items.push(`Re-observed ${metrics.reobserveCount} time(s)`);
   }
 
   return items.length > 0 ? `\n\nSESSION STATE:\n${items.join('\n')}` : '';
@@ -780,7 +780,7 @@ export interface BuildPromptResult {
  *
  * Applies token limits to ensure prompts fit within model context windows.
  *
- * @param pageState - Current page state from perceive.ts
+ * @param pageState - Current page state from observe.ts
  * @param goal - User's goal (optional if preset provided)
  * @param preset - Pre-configured task template (optional)
  * @param plan - Current session plan
@@ -1244,7 +1244,7 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
   const mockMetrics: ExecutionMetrics = {
     consecutiveFailures: 0,
     replanCount: 0,
-    reperceiveCount: 0,
+    reobserveCount: 0,
   };
 
   const { systemPrompt, situationPrompt } = buildPrompt(

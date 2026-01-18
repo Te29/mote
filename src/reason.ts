@@ -15,7 +15,7 @@
 // - SessionPlan validation for presets
 //
 // The process:
-// 1. Take the current page state (from perceive.ts)
+// 1. Take the current page state (from observe.ts)
 // 2. Build a prompt that explains the situation to the AI (via prompt.ts)
 // 3. Send it to the LLM (Ollama or OpenAI)
 // 4. Parse the AI's response into a structured ThinkResult
@@ -107,7 +107,7 @@ function getDefaultModel(): string {
  * Returns ThinkResult discriminated union instead of just Action.
  * Supports optional user intervention to guide decisions.
  *
- * @param pageState - What the agent sees (from perceive.ts)
+ * @param pageState - What the agent sees (from observe.ts)
  * @param goal - What the agent is trying to accomplish (optional if preset provided)
  * @param preset - Pre-configured task template (optional)
  * @param plan - Current session plan for progress tracking
@@ -635,7 +635,7 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
   const mockExecutionMetrics: ExecutionMetrics = {
     consecutiveFailures: 0,
     replanCount: 0,
-    reperceiveCount: 0,
+    reobserveCount: 0,
   };
 
   const result = await think(

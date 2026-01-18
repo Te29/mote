@@ -8,7 +8,7 @@
     "start": "tsx src/mote.ts",
     "dev": "tsx watch src/mote.ts",
     "test:browser": "tsx src/browser.ts",
-    "test:perceive": "tsx src/perceive.ts",
+    "test:observe": "tsx src/observe.ts",
     "test:prompt": "tsx src/prompt.ts",
     "test:reason": "tsx src/reason.ts"
   },

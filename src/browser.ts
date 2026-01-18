@@ -191,7 +191,7 @@ export async function navigateTo(page: Page, url: string): Promise<void> {
 
 /**
  * Get the current page's HTML content.
- * This is the raw HTML that will be processed by perceive.ts
+ * This is the raw HTML that will be processed by observe.ts
  *
  * @param page - Playwright page object
  * @returns Object with url, title, and html
@@ -207,7 +207,7 @@ export async function getPageContent(page: Page): Promise<{
 
   // Get the full HTML of the page
   // This includes everything: head, body, scripts, styles
-  // The perceive module will clean this up
+  // The observe module will clean this up
   const html = await page.content();
 
   return { url, title, html };

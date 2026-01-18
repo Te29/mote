@@ -306,7 +306,7 @@ export interface Preset {
 
 /**
  * Snapshot of the current page state.
- * Produced by perceive.ts, consumed by reason.ts
+ * Produced by observe.ts, consumed by reason.ts
  */
 export interface PageState {
   /** Current page URL */
