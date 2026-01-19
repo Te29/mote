@@ -66,8 +66,8 @@ import { JSDOM } from 'jsdom';
 import { fileURLToPath } from 'url';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
-import type { Page } from 'playwright';
-import type { PageState, ElementInfo } from './types.js';
+import type { Page, Frame } from 'playwright';
+import type { PageState, ElementInfo, CaptchaInfo } from './types.js';
 import { getPageContent } from './browser.js';
 
 // -----------------------------------------------------------------------------
@@ -133,12 +133,121 @@ export async function observe(page: Page): Promise<PageState> {
   // Find interactive elements
   const elements = await extractInteractiveElements(page);
 
-  return {
+  // Check for captcha/anti-bot challenges
+  const captcha = await detectCaptcha(page);
+
+  const result: PageState = {
     url,
     title,
     markdown,
     elements,
   };
+
+  // Only include captcha field if detected
+  if (captcha.detected) {
+    result.captcha = captcha;
+  }
+
+  return result;
+}
+
+// -----------------------------------------------------------------------------
+// CAPTCHA DETECTION
+// -----------------------------------------------------------------------------
+
+/**
+ * Detect common captcha and anti-bot challenges on the page.
+ * Returns info about what was detected so the agent can request HITL.
+ *
+ * Detects:
+ * - reCAPTCHA (Google)
+ * - hCaptcha
+ * - Cloudflare challenges
+ * - Generic "verify you're human" patterns
+ */
+async function detectCaptcha(page: Page): Promise<CaptchaInfo> {
+  const detection = await page.evaluate(() => {
+    const html = document.documentElement.outerHTML.toLowerCase();
+    const bodyText = document.body?.innerText?.toLowerCase() || '';
+
+    // Check for reCAPTCHA
+    const hasRecaptcha =
+      html.includes('recaptcha') ||
+      html.includes('grecaptcha') ||
+      !!document.querySelector('iframe[src*="recaptcha"]') ||
+      !!document.querySelector('.g-recaptcha');
+
+    if (hasRecaptcha) {
+      return { detected: true, type: 'recaptcha' as const };
+    }
+
+    // Check for hCaptcha
+    const hasHcaptcha =
+      html.includes('hcaptcha') ||
+      !!document.querySelector('iframe[src*="hcaptcha"]') ||
+      !!document.querySelector('.h-captcha');
+
+    if (hasHcaptcha) {
+      return { detected: true, type: 'hcaptcha' as const };
+    }
+
+    // Check for Cloudflare challenge
+    const hasCloudflare =
+      html.includes('cloudflare') ||
+      html.includes('cf-browser-verification') ||
+      html.includes('cf_chl_opt') ||
+      bodyText.includes('checking your browser') ||
+      bodyText.includes('ddos protection by cloudflare') ||
+      !!document.querySelector('#cf-wrapper') ||
+      !!document.querySelector('.cf-browser-verification');
+
+    if (hasCloudflare) {
+      return { detected: true, type: 'cloudflare' as const };
+    }
+
+    // Check for generic captcha patterns
+    const genericPatterns = [
+      'verify you are human',
+      "verify you're human",
+      'prove you are human',
+      "prove you're human",
+      'are you a robot',
+      'not a robot',
+      'human verification',
+      'bot detection',
+      'security check',
+      'captcha',
+    ];
+
+    const hasGenericCaptcha = genericPatterns.some(
+      (pattern) => bodyText.includes(pattern) || html.includes(pattern),
+    );
+
+    if (hasGenericCaptcha) {
+      return { detected: true, type: 'generic' as const };
+    }
+
+    return { detected: false, type: undefined };
+  });
+
+  // Build result with human-readable message
+  if (detection.detected && detection.type) {
+    const messages: Record<string, string> = {
+      recaptcha: 'Google reCAPTCHA detected - human intervention required',
+      hcaptcha: 'hCaptcha detected - human intervention required',
+      cloudflare:
+        'Cloudflare challenge detected - waiting or human intervention required',
+      generic: 'Captcha or verification challenge detected - human intervention may be required',
+    };
+
+    return {
+      detected: true,
+      type: detection.type,
+      message: messages[detection.type],
+    };
+  }
+
+  return { detected: false };
 }
 
 // -----------------------------------------------------------------------------
@@ -267,13 +376,191 @@ function simplifyHtml(document: Document): string {
 // -----------------------------------------------------------------------------
 
 /**
- * Find all interactive elements on the page.
+ * Raw element data extracted from page.evaluate()
+ */
+interface RawElementData {
+  tag: string;
+  text: string;
+  inputType?: string;
+  attributes: Record<string, string>;
+  rect: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Extract interactive elements from a single frame.
+ * Used by extractInteractiveElements to process both main page and iframes.
+ */
+async function extractElementsFromFrame(
+  frame: Frame,
+): Promise<RawElementData[]> {
+  try {
+    return await frame.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        inputType?: string;
+        attributes: Record<string, string>;
+        rect: { x: number; y: number; width: number; height: number };
+      }> = [];
+
+      // Selector for interactive elements
+      const selector = [
+        'a[href]',
+        'button',
+        'input:not([type="hidden"])',
+        'textarea',
+        'select',
+        '[role="button"]',
+        '[role="link"]',
+        '[role="textbox"]',
+        '[onclick]',
+      ].join(', ');
+
+      const elements = document.querySelectorAll(selector);
+
+      elements.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+
+        // Skip invisible elements
+        const rect = htmlEl.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        // Skip elements outside viewport (likely hidden)
+        if (rect.top > window.innerHeight || rect.bottom < 0) return;
+        if (rect.left > window.innerWidth || rect.right < 0) return;
+
+        // Get visible text
+        let text =
+          htmlEl.innerText?.trim() ||
+          htmlEl.getAttribute('aria-label') ||
+          htmlEl.getAttribute('placeholder') ||
+          htmlEl.getAttribute('title') ||
+          htmlEl.getAttribute('alt') ||
+          htmlEl.getAttribute('value') ||
+          '';
+
+        // Truncate long text
+        if (text.length > 50) {
+          text = text.substring(0, 47) + '...';
+        }
+
+        // Skip elements with no identifiable text
+        if (!text && el.tagName.toLowerCase() !== 'input') return;
+
+        // Collect relevant attributes
+        const attributes: Record<string, string> = {};
+        const attrNames = [
+          'href',
+          'name',
+          'id',
+          'class',
+          'type',
+          'aria-label',
+          'placeholder',
+        ];
+
+        for (const attr of attrNames) {
+          const value = htmlEl.getAttribute(attr);
+          if (value) {
+            attributes[attr] =
+              value.length > 100 ? value.substring(0, 97) + '...' : value;
+          }
+        }
+
+        results.push({
+          tag: el.tagName.toLowerCase(),
+          text,
+          inputType: (el as HTMLInputElement).type,
+          attributes,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        });
+      });
+
+      return results;
+    });
+  } catch {
+    // Frame may be detached or cross-origin - skip it
+    return [];
+  }
+}
+
+/**
+ * Build a selector for an iframe element.
+ * Returns null if no good selector can be built.
+ */
+async function buildIframeSelector(
+  _page: Page,
+  frame: Frame,
+): Promise<string | null> {
+  // Get the frame element from the parent frame
+  const parentFrame = frame.parentFrame();
+  if (!parentFrame) return null;
+
+  try {
+    // Find the iframe element in the parent that contains this frame
+    const frameUrl = frame.url();
+    const frameName = frame.name();
+
+    // Try to find by name first (most reliable)
+    if (frameName) {
+      const hasName = await parentFrame.evaluate(
+        (name) => !!document.querySelector(`iframe[name="${name}"]`),
+        frameName,
+      );
+      if (hasName) return `iframe[name="${frameName}"]`;
+    }
+
+    // Try to find by src URL
+    if (frameUrl && frameUrl !== 'about:blank') {
+      // Use partial match for long URLs
+      const urlPart = frameUrl.length > 50 ? frameUrl.substring(0, 40) : frameUrl;
+      const hasSrc = await parentFrame.evaluate(
+        (url) => !!document.querySelector(`iframe[src*="${url}"]`),
+        urlPart,
+      );
+      if (hasSrc) return `iframe[src*="${urlPart}"]`;
+    }
+
+    // Try common iframe identifiers
+    const iframeSelectors = [
+      'iframe[id]',
+      'iframe[class]',
+      'iframe[title]',
+    ];
+
+    for (const sel of iframeSelectors) {
+      const count = await parentFrame.evaluate(
+        (s) => document.querySelectorAll(s).length,
+        sel,
+      );
+      if (count === 1) {
+        // Only use if unique
+        const attr = await parentFrame.evaluate((s) => {
+          const el = document.querySelector(s) as HTMLIFrameElement | null;
+          if (!el) return null;
+          if (el.id) return `iframe[id="${el.id}"]`;
+          if (el.className) return `iframe[class="${el.className}"]`;
+          if (el.title) return `iframe[title="${el.title}"]`;
+          return null;
+        }, sel);
+        if (attr) return attr;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find all interactive elements on the page, including those inside iframes.
  * These are elements the agent can click, type into, etc.
  *
  * Assign each element an index number so the AI can reference them:
  *   [1] Button: "Search"
  *   [2] Input: "Enter your query..."
- *   [3] Link: "About Us"
+ *   [3] Link: "About Us" (in iframe)
  *
  * @param page - Playwright page object
  * @returns Array of ElementInfo objects
@@ -289,93 +576,30 @@ export async function extractInteractiveElements(
   // - Inputs: <input>, <textarea>, <select>
   // - Clickable: Elements with onclick or role="button"
 
-  const elements = await page.evaluate(() => {
-    const results: Array<{
-      tag: string;
-      text: string;
-      inputType?: string;
-      attributes: Record<string, string>;
-      rect: { x: number; y: number; width: number; height: number };
-    }> = [];
+  const allElements: Array<RawElementData & { frameSelector?: string }> = [];
 
-    // Selector for interactive elements
-    const selector = [
-      'a[href]',
-      'button',
-      'input:not([type="hidden"])',
-      'textarea',
-      'select',
-      '[role="button"]',
-      '[role="link"]',
-      '[role="textbox"]',
-      '[onclick]',
-    ].join(', ');
+  // Extract from main frame
+  const mainElements = await extractElementsFromFrame(page.mainFrame());
+  allElements.push(...mainElements);
 
-    const elements = document.querySelectorAll(selector);
+  // Extract from all iframes (including nested)
+  const frames = page.frames();
+  for (const frame of frames) {
+    // Skip main frame (already processed)
+    if (frame === page.mainFrame()) continue;
 
-    elements.forEach((el) => {
-      const htmlEl = el as HTMLElement;
+    // Try to build a selector for this iframe
+    const frameSelector = await buildIframeSelector(page, frame);
+    if (!frameSelector) continue; // Skip iframes we can't reliably target
 
-      // Skip invisible elements
-      // Many pages have hidden elements (menus, modals).
-      // We only want elements the user can actually see and interact with.
-      const rect = htmlEl.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
+    // Extract elements from this frame
+    const frameElements = await extractElementsFromFrame(frame);
 
-      // Skip elements outside viewport (likely hidden)
-      if (rect.top > window.innerHeight || rect.bottom < 0) return;
-      if (rect.left > window.innerWidth || rect.right < 0) return;
-
-      // Get visible text
-      //Text priority: innerText → aria-label → placeholder → title → alt → value
-      // This ensures we always have something to show the AI about what the element does.
-      let text =
-        htmlEl.innerText?.trim() ||
-        htmlEl.getAttribute('aria-label') ||
-        htmlEl.getAttribute('placeholder') ||
-        htmlEl.getAttribute('title') ||
-        htmlEl.getAttribute('alt') ||
-        htmlEl.getAttribute('value') ||
-        '';
-
-      // Truncate long text
-      if (text.length > 50) {
-        text = text.substring(0, 47) + '...';
-      }
-
-      // Skip elements with no identifiable text
-      if (!text && el.tagName.toLowerCase() !== 'input') return;
-      // Collect relevant attributes
-      const attributes: Record<string, string> = {};
-      const attrNames = [
-        'href',
-        'name',
-        'id',
-        'class',
-        'type',
-        'aria-label',
-        'placeholder',
-      ];
-
-      for (const attr of attrNames) {
-        const value = htmlEl.getAttribute(attr);
-        if (value) {
-          attributes[attr] =
-            value.length > 100 ? value.substring(0, 97) + '...' : value;
-        }
-      }
-
-      results.push({
-        tag: el.tagName.toLowerCase(),
-        text,
-        inputType: (el as HTMLInputElement).type,
-        attributes,
-        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      });
-    });
-
-    return results;
-  });
+    // Add frame selector to each element
+    for (const el of frameElements) {
+      allElements.push({ ...el, frameSelector });
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Build element list with selectors
@@ -383,7 +607,7 @@ export async function extractInteractiveElements(
   // We need to create a unique CSS selector for each element
   // so Playwright can find it later when we want to click/type
 
-  return elements.map((el, idx) => {
+  return allElements.map((el, idx) => {
     const selector = buildSelector(el);
 
     return {
@@ -393,6 +617,7 @@ export async function extractInteractiveElements(
       selector,
       inputType: el.inputType,
       attributes: el.attributes,
+      frameSelector: el.frameSelector,
     };
   });
 }
