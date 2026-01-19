@@ -52,8 +52,9 @@ export function parseTimestamp(timestamp: string): Date {
  * - scroll: Scroll the page up or down
  * - navigate: Go to a new URL
  * - wait: Pause for content to load
+ * - hover: Move mouse over an element (for dropdowns, tooltips)
  */
-export type WebAction = 'click' | 'type' | 'scroll' | 'navigate' | 'wait';
+export type WebAction = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'hover';
 
 /**
  * A browser action with its parameters.
@@ -305,6 +306,18 @@ export interface Preset {
 // What the agent "sees" - a simplified view of the web page.
 
 /**
+ * Information about detected captcha or anti-bot challenge.
+ */
+export interface CaptchaInfo {
+  /** Whether a captcha was detected */
+  detected: boolean;
+  /** Type of captcha if detected */
+  type?: 'recaptcha' | 'hcaptcha' | 'cloudflare' | 'generic' | 'unknown';
+  /** Human-readable description */
+  message?: string;
+}
+
+/**
  * Snapshot of the current page state.
  * Produced by observe.ts, consumed by reason.ts
  */
@@ -320,6 +333,9 @@ export interface PageState {
 
   /** Interactive elements the agent can interact with */
   elements: ElementInfo[];
+
+  /** Captcha/anti-bot detection info (if any detected) */
+  captcha?: CaptchaInfo;
 }
 
 /**
@@ -347,6 +363,9 @@ export interface ElementInfo {
 
   /** Key HTML attributes (href, name, aria-label, etc.) */
   attributes: Record<string, string>;
+
+  /** Selector to locate the iframe containing this element (if in iframe) */
+  frameSelector?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -380,6 +399,12 @@ export interface MoteConfig {
 
   /** Slow down actions by this many ms */
   slowMo?: number;
+
+  /** Path to browser profile directory (persists cookies, logins, history) */
+  profilePath?: string;
+
+  /** Enable anti-bot stealth patches */
+  stealth?: boolean;
 
   /** Human-in-the-loop settings */
   humanControl?: HumanControlConfig;
@@ -543,6 +568,12 @@ export interface BrowserConfig {
   /** Slow down actions by this many ms */
   slowMo: number;
 
+  /** Path to browser profile directory (persists cookies, logins, history) */
+  profilePath?: string;
+
+  /** Enable anti-bot stealth patches (hides automation signals) */
+  stealth?: boolean;
+
   /** Default timeout for operations (ms) */
   timeout: {
     default: number;
@@ -580,6 +611,20 @@ export interface PromptTokenLimits {
 // -----------------------------------------------------------------------------
 
 /**
+ * Information about a downloaded file.
+ */
+export interface DownloadInfo {
+  /** Suggested filename from the server */
+  suggestedFilename: string;
+
+  /** Path where the file was saved */
+  path: string;
+
+  /** URL the download was initiated from */
+  url: string;
+}
+
+/**
  * Result of executing an action.
  */
 export interface ExecuteResult {
@@ -588,6 +633,12 @@ export interface ExecuteResult {
 
   /** Error message if failed */
   error?: string;
+
+  /** New page if action opened a new tab (click with target="_blank") */
+  newPage?: import('playwright').Page;
+
+  /** Download info if the action triggered a file download */
+  download?: DownloadInfo;
 }
 
 /**

@@ -30,6 +30,22 @@ import type { BrowserConfig } from './types.js';
 // -----------------------------------------------------------------------------
 
 /**
+ * Information about a browser dialog (alert, confirm, prompt).
+ */
+export interface DialogInfo {
+  /** Type of dialog: 'alert', 'confirm', 'prompt', 'beforeunload' */
+  type: string;
+  /** Message displayed in the dialog */
+  message: string;
+  /** Default value for prompt dialogs */
+  defaultValue?: string;
+  /** When the dialog appeared */
+  timestamp: string;
+  /** Whether the dialog was accepted or dismissed */
+  accepted: boolean;
+}
+
+/**
  * A bundle of browser resources.
  * Returns all three so the caller can control them.
  *
@@ -42,6 +58,10 @@ export interface BrowserSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
+  /** Recent dialogs that appeared (kept for agent awareness) */
+  recentDialogs: DialogInfo[];
+  /** Get and clear recent dialogs */
+  getAndClearDialogs: () => DialogInfo[];
 }
 
 // Module-level variable to store browser config for use across functions.
@@ -71,70 +91,114 @@ let sessionBrowserConfig: BrowserConfig;
 export async function launchBrowser(
   config: BrowserConfig
 ): Promise<BrowserSession> {
-  // ---------------------------------------------------------------------------
-  // Launch the browser process
-  // ---------------------------------------------------------------------------
-  // Playwright supports three browsers: chromium, firefox, webkit
-  // Why uses Chromium?
-  // 1. Most websites are tested on Chrome
-  // 2. It has the best DevTools
-  // 3. It's what most users are familiar with
-
-  // Store config at module level so other functions (navigateTo, waitForElement, etc.)
-  // can access timeout settings without needing config passed as a parameter.
+  // Store config at module level so other functions can access timeout settings
   sessionBrowserConfig = config;
 
-  const browser = await chromium.launch({
-    // headless: true  = no visible window (faster, for production)
-    // headless: false = visible window (for debugging, watching agent work)
-    headless: config.headless,
-
-    // slowMo adds a delay (in ms) between every Playwright action
-    // This makes it easier to see what the agent is doing
-    // 0 = full speed, 50-100 = watchable, 500+ = slow motion
-    slowMo: config.slowMo,
-  });
-
   // ---------------------------------------------------------------------------
-  // Create a browser context
+  // Stealth mode configuration
   // ---------------------------------------------------------------------------
-  // A context is like an incognito window - it has its own:
-  // - Cookies (login sessions)
-  // - LocalStorage
-  // - Cache
-  //
-  // Why use a context instead of the browser directly?
-  // - Isolation: Each context is independent
-  // - Cleanup: Close context = clear all data
-  // - Parallelism: You can run multiple contexts at once
+  // When stealth is enabled, we apply patches to avoid bot detection:
+  // - Browser launch args to disable automation signals
+  // - Init script to hide navigator.webdriver
+  const stealthArgs = config.stealth
+    ? [
+        '--disable-blink-features=AutomationControlled',
+        '--window-size=1280,800',
+        '--window-position=100,50',
+      ]
+    : ['--window-size=1280,800', '--window-position=100,50'];
 
-  const context = await browser.newContext({
-    // Set a reasonable viewport size
-    // Mobile: 375x667, Tablet: 768x1024, Desktop: 1280x720
-    viewport: { width: 1280, height: 720 },
+  const stealthInitScript = `
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  `;
 
-    // Identify ourselves (some sites block headless browsers)
+  // Common context options - use null viewport for responsive behavior
+  const contextOptions = {
+    viewport: null as null,  // Responsive - content reflows when window resizes
     userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  });
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  };
+
+  let browser: Browser;
+  let context: BrowserContext;
+  let page: Page;
 
   // ---------------------------------------------------------------------------
-  // Create a page (tab)
+  // Launch browser - persistent or ephemeral
   // ---------------------------------------------------------------------------
-  // This is where the actual web content lives
-  // Most agent interactions happen through the page object
+  if (config.profilePath) {
+    // Persistent context: saves cookies, logins, history to disk
+    // This is ideal for avoiding re-login and looking like a real user
+    context = await chromium.launchPersistentContext(config.profilePath, {
+      headless: config.headless,
+      slowMo: config.slowMo,
+      args: stealthArgs.length > 0 ? stealthArgs : undefined,
+      ...contextOptions,
+    });
 
-  const page = await context.newPage();
+    // For persistent context, browser() returns the browser instance
+    browser = context.browser()!;
 
-  // Set a global fallback timeout for all page operations (click, fill, wait).
-  // Uses config.timeout.default - the general-purpose timeout.
-  // Other specific timeouts (navigation, element, postNavDelay) are used in their
-  // respective functions via sessionBrowserConfig.
+    // Use existing page or create new one
+    page = context.pages()[0] || (await context.newPage());
+
+    console.log(`🌐 Browser launched (profile: ${config.profilePath})`);
+  } else {
+    // Ephemeral: fresh browser each time (original behavior)
+    browser = await chromium.launch({
+      headless: config.headless,
+      slowMo: config.slowMo,
+      args: stealthArgs.length > 0 ? stealthArgs : undefined,
+    });
+
+    context = await browser.newContext(contextOptions);
+    page = await context.newPage();
+
+    console.log('🌐 Browser launched');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Apply stealth patches
+  // ---------------------------------------------------------------------------
+  if (config.stealth) {
+    await context.addInitScript(stealthInitScript);
+    console.log('🥷 Stealth mode enabled');
+  }
+
+  // Set default timeout for all page operations
   page.setDefaultTimeout(config.timeout.default);
 
-  console.log('🌐 Browser launched');
+  // ---------------------------------------------------------------------------
+  // Set up dialog handler
+  // ---------------------------------------------------------------------------
+  const recentDialogs: DialogInfo[] = [];
 
-  return { browser, context, page };
+  page.on('dialog', async (dialog) => {
+    const dialogInfo: DialogInfo = {
+      type: dialog.type(),
+      message: dialog.message(),
+      defaultValue: dialog.defaultValue() || undefined,
+      timestamp: new Date().toISOString(),
+      accepted: true,
+    };
+
+    recentDialogs.push(dialogInfo);
+    if (recentDialogs.length > 5) {
+      recentDialogs.shift();
+    }
+
+    console.log(`💬 Dialog (${dialog.type()}): "${dialog.message()}" → auto-accepted`);
+    await dialog.accept();
+  });
+
+  // Helper to get and clear dialogs
+  const getAndClearDialogs = (): DialogInfo[] => {
+    const dialogs = [...recentDialogs];
+    recentDialogs.length = 0;
+    return dialogs;
+  };
+
+  return { browser, context, page, recentDialogs, getAndClearDialogs };
 }
 
 // -----------------------------------------------------------------------------

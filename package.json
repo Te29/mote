@@ -10,7 +10,9 @@
     "test:browser": "tsx src/browser.ts",
     "test:observe": "tsx src/observe.ts",
     "test:prompt": "tsx src/prompt.ts",
-    "test:reason": "tsx src/reason.ts"
+    "test:reason": "tsx src/reason.ts",
+    "test:act": "tsx src/act.ts",
+    "test:mote": "tsx src/mote.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

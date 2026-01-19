@@ -12,6 +12,9 @@ playwright-report/
 test-results/
 traces/
 
+# Browser profile (contains cookies, logins - DO NOT COMMIT!)
+mote-profile/
+
 # Screenshots
 screenshots/
 
