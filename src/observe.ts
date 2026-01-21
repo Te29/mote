@@ -153,83 +153,8 @@ export async function observe(
      markdown = '[Execute Mode: Markdown generation skipped for performance]';
   } else {
      // Normal Explore Mode OR Fallback (targets not found)
-     // Extract and convert content
-     const cleanHtml = await page.evaluate(() => {
-    // Helper to check if element is visible
-    function isVisible(elem: Element): boolean {
-      const style = window.getComputedStyle(elem);
-      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-    }
-
-    /**
-     * Recursive function to clone a node AND its Shadow DOM.
-     * Returns a standard HTMLElement that represents the original node + shadow content.
-     */
-    function cloneWithShadow(node: Node): Node | null {
-      // 1. Text nodes: just clone
-      if (node.nodeType === Node.TEXT_NODE) {
-        return node.cloneNode(true);
-      }
-
-      // 2. Elements: deeply clone, then process Shadow DOM
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const el = node as Element;
-        
-        // Skip hidden elements
-        if (!isVisible(el)) return null;
-
-        // Clone the element (shallow clone first to manage children manually)
-        const clone = el.cloneNode(false) as HTMLElement; // shallow clone
-
-        // Handle Shadow Root
-        if (el.shadowRoot) {
-          // Create a container for shadow content to make it "visible" to Readability/Turndown
-          // We use a custom attribute to debug if needed, but semantically a DIV is fine.
-          const shadowContainer = document.createElement('div');
-          shadowContainer.setAttribute('data-mote-shadow-root', 'true');
-          
-          // Recurse into shadow root children
-          Array.from(el.shadowRoot.childNodes).forEach(child => {
-            const shadowChild = cloneWithShadow(child);
-            if (shadowChild) shadowContainer.appendChild(shadowChild);
-          });
-          
-          clone.appendChild(shadowContainer);
-        }
-
-        // Handle generic Slot elements (where light DOM children are projected)
-        if (el.tagName.toLowerCase() === 'slot') {
-            // In a flattened view, slots are just placeholders. 
-            // The actual content is in the light DOM children of the host.
-            // But since we are flattening the *view*, we might want to just render the children here?
-            // Simpler approach: Just allow normal child processing to handle light DOM.
-        }
-
-        // Recurse into normal children (Light DOM)
-        // Note: In a real Shadow DOM render, light DOM children only show up if projected into slots.
-        // For our purpose (content extraction), reading everything is safer than missing things.
-        Array.from(el.childNodes).forEach(child => {
-             const childClone = cloneWithShadow(child);
-             if (childClone) clone.appendChild(childClone);
-        });
-
-        return clone;
-      }
-
-      // Default: ignore comments etc.
-      return null;
-    }
-
-    // Start cloning from body
-    // We create a wrapper to hold the result
-    const wrapper = document.createElement('div');
-    Array.from(document.body.childNodes).forEach(child => {
-        const cloned = cloneWithShadow(child);
-        if (cloned) wrapper.appendChild(cloned);
-    });
-
-    return wrapper.innerHTML;
-  });
+     // Extract and convert content using string-based script to avoid esbuild __name issues
+     const cleanHtml = await page.evaluate(EXTRACT_CLEAN_HTML_SCRIPT) as string;
 
     markdown = extractAndConvert(cleanHtml, url);
   }
@@ -518,8 +443,19 @@ export async function extractInteractiveElements(
         frameSelector = buildSelector(frameAttrs);
       }
 
-      // 2. Extract elements from this frame
-      const rawElements = await frame.evaluate(extractInteractiveElementsInContext, targetSelectors);
+      // 2. Extract elements from this frame using string-based script to avoid esbuild __name issues
+      const rawElements = await frame.evaluate(
+        `${EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT}(${JSON.stringify(targetSelectors)})`
+      ) as Array<{
+        tag: string;
+        text: string;
+        inputType?: string;
+        attributes: Record<string, string>;
+        rect: { x: number; y: number; width: number; height: number };
+        parentSelector?: string;
+        options?: Array<{ value: string; label: string }>;
+        disabled?: boolean;
+      }>;
 
       // 3. Process and add to list
       for (const el of rawElements) {
@@ -547,192 +483,206 @@ export async function extractInteractiveElements(
   return allElements;
 }
 
+// =============================================================================
+// BROWSER-CONTEXT SCRIPTS (as string literals to avoid esbuild transformation)
+// =============================================================================
+// These scripts run inside the browser via page.evaluate(). They MUST be defined
+// as string literals, not TypeScript functions, because esbuild adds __name helper
+// calls to function declarations that don't exist in the browser context.
+
 /**
- * This function runs INSIDE the browser (in every frame).
- * It finds interactive elements and returns their raw data.
- * NOW SUPPORTS SHADOW DOM TRAVERSAL.
+ * Script to extract clean HTML content from the page.
+ * Clones the DOM while flattening Shadow DOM for Readability/Turndown processing.
  */
-function extractInteractiveElementsInContext(targetSelectors?: string[]) {
-    const results: Array<{
-      tag: string;
-      text: string;
-      inputType?: string;
-      attributes: Record<string, string>;
-      rect: { x: number; y: number; width: number; height: number };
-      parentSelector?: string;
-      options?: Array<{ value: string; label: string }>;
-      disabled?: boolean;
-    }> = [];
+const EXTRACT_CLEAN_HTML_SCRIPT = `(function() {
+  function isVisible(elem) {
+    var style = window.getComputedStyle(elem);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+  }
 
-    // Helper to check visibility
-    function isVisible(rect: DOMRect) {
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        rect.top < window.innerHeight &&
-        rect.bottom > 0 &&
-        rect.left < window.innerWidth &&
-        rect.right > 0
-      );
+  function cloneWithShadow(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.cloneNode(true);
     }
 
-    // Interactive element definitions
-    const interactiveTags = new Set(['button', 'a', 'input', 'textarea', 'select', 'details', 'summary']);
-    const interactiveRoles = new Set([
-      'button', 'link', 'textbox', 'checkbox', 'radio', 'switch', 'menuitem',
-      'tab', 'option', 'slider', 'spinbutton', 'combobox', 'searchbox', 'listbox',
-      'menu', 'menuitemcheckbox', 'menuitemradio', 'treeitem'
-    ]);
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      var el = node;
+      if (!isVisible(el)) return null;
 
-    function isInteractive(el: HTMLElement) {
-        const tag = el.tagName.toLowerCase();
-        const role = el.getAttribute('role');
-        const hasClick = el.hasAttribute('onclick'); // Crude check, real listeners harder to find
-        const isContentEditable = el.isContentEditable && el.contentEditable === 'true';
+      var clone = el.cloneNode(false);
 
-        // Basic checks
-        if (interactiveTags.has(tag)) {
-            if (tag === 'input' && el.getAttribute('type') === 'hidden') return false;
-            return true;
+      if (el.shadowRoot) {
+        var shadowContainer = document.createElement('div');
+        shadowContainer.setAttribute('data-mote-shadow-root', 'true');
+        Array.from(el.shadowRoot.childNodes).forEach(function(child) {
+          var shadowChild = cloneWithShadow(child);
+          if (shadowChild) shadowContainer.appendChild(shadowChild);
+        });
+        clone.appendChild(shadowContainer);
+      }
+
+      Array.from(el.childNodes).forEach(function(child) {
+        var childClone = cloneWithShadow(child);
+        if (childClone) clone.appendChild(childClone);
+      });
+
+      return clone;
+    }
+
+    return null;
+  }
+
+  var wrapper = document.createElement('div');
+  Array.from(document.body.childNodes).forEach(function(child) {
+    var cloned = cloneWithShadow(child);
+    if (cloned) wrapper.appendChild(cloned);
+  });
+
+  return wrapper.innerHTML;
+})()`;
+
+/**
+ * Script to extract interactive elements from the page.
+ * Supports Shadow DOM traversal.
+ */
+const EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT = `(function(targetSelectors) {
+  var results = [];
+
+  function isVisible(rect) {
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.top < window.innerHeight &&
+      rect.bottom > 0 &&
+      rect.left < window.innerWidth &&
+      rect.right > 0
+    );
+  }
+
+  var interactiveTags = new Set(['button', 'a', 'input', 'textarea', 'select', 'details', 'summary']);
+  var interactiveRoles = new Set([
+    'button', 'link', 'textbox', 'checkbox', 'radio', 'switch', 'menuitem',
+    'tab', 'option', 'slider', 'spinbutton', 'combobox', 'searchbox', 'listbox',
+    'menu', 'menuitemcheckbox', 'menuitemradio', 'treeitem'
+  ]);
+
+  function isInteractive(el) {
+    var tag = el.tagName.toLowerCase();
+    var role = el.getAttribute('role');
+    var hasClick = el.hasAttribute('onclick');
+    var isContentEditable = el.isContentEditable && el.contentEditable === 'true';
+
+    if (interactiveTags.has(tag)) {
+      if (tag === 'input' && el.getAttribute('type') === 'hidden') return false;
+      return true;
+    }
+    if (role && interactiveRoles.has(role)) return true;
+    if (hasClick) return true;
+    if (isContentEditable) return true;
+
+    return false;
+  }
+
+  function isDisabled(el) {
+    if (el.disabled) return true;
+    if (el.getAttribute('aria-disabled') === 'true') return true;
+    return false;
+  }
+
+  function getSelectOptions(el) {
+    var options = [];
+    for (var i = 0; i < el.options.length && options.length < 20; i++) {
+      var opt = el.options[i];
+      if (!opt.disabled) {
+        options.push({
+          value: opt.value,
+          label: opt.text.trim() || opt.value
+        });
+      }
+    }
+    return options;
+  }
+
+  function walk(root) {
+    var children = root instanceof HTMLIFrameElement ? [] : root.children;
+
+    for (var i = 0; i < children.length; i++) {
+      var el = children[i];
+
+      if (isInteractive(el)) {
+        var rect = el.getBoundingClientRect();
+
+        if (isVisible(rect)) {
+          var tag = el.tagName.toLowerCase();
+          var disabled = isDisabled(el);
+
+          var text =
+            (el.innerText && el.innerText.trim()) ||
+            el.getAttribute('aria-label') ||
+            el.getAttribute('placeholder') ||
+            el.getAttribute('title') ||
+            el.getAttribute('alt') ||
+            el.getAttribute('value') ||
+            '';
+
+          if (text.length > 50) text = text.substring(0, 47) + '...';
+
+          if (text || tag === 'input' || tag === 'select') {
+            var attributes = {};
+            var attrNames = [
+              'href', 'name', 'id', 'class', 'type',
+              'aria-label', 'placeholder', 'value', 'role',
+              'data-testid', 'data-test-id', 'data-test'
+            ];
+
+            for (var j = 0; j < attrNames.length; j++) {
+              var attr = attrNames[j];
+              var val = el.getAttribute(attr);
+              if (val) attributes[attr] = val.length > 100 ? val.substring(0, 97) + '...' : val;
+            }
+
+            var parent = el.parentElement;
+            var parentSelector;
+            while (parent && parent !== document.body) {
+              if (parent.id) {
+                parentSelector = '[id="' + parent.id + '"]';
+                break;
+              }
+              parent = parent.parentElement;
+            }
+
+            var options;
+            if (tag === 'select') {
+              options = getSelectOptions(el);
+            }
+
+            results.push({
+              tag: tag,
+              text: text,
+              inputType: el.type,
+              attributes: attributes,
+              rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+              parentSelector: parentSelector,
+              options: options,
+              disabled: disabled || undefined
+            });
+          }
         }
-        if (role && interactiveRoles.has(role)) return true;
-        if (hasClick) return true;
-        if (isContentEditable) return true;
+      }
 
-        return false;
+      if (el.shadowRoot) {
+        walk(el.shadowRoot);
+      }
+
+      if (el.childElementCount > 0 && el.tagName.toLowerCase() !== 'iframe') {
+        walk(el);
+      }
     }
+  }
 
-    // Check if element is disabled
-    function isDisabled(el: HTMLElement): boolean {
-        if ((el as HTMLButtonElement | HTMLInputElement).disabled) return true;
-        if (el.getAttribute('aria-disabled') === 'true') return true;
-        return false;
-    }
-
-    // Extract options from select element
-    function getSelectOptions(el: HTMLSelectElement): Array<{ value: string; label: string }> {
-        const options: Array<{ value: string; label: string }> = [];
-        for (const opt of Array.from(el.options)) {
-            if (!opt.disabled) {
-                options.push({
-                    value: opt.value,
-                    label: opt.text.trim() || opt.value
-                });
-            }
-        }
-        // Limit to first 20 options to avoid bloat
-        return options.slice(0, 20);
-    }
-
-    // Recursive Shadow DOM walker
-    function walk(root: Document | ShadowRoot | Element) {
-        const children = root instanceof HTMLIFrameElement ? [] : root.children; // Don't walk into iframes here, Playwright handles frames
-
-        for (let i = 0; i < children.length; i++) {
-            const el = children[i] as HTMLElement;
-
-            // Check if interactive
-            // Filter by targetSelectors if provided (Execute Mode)
-            // Note: We can't perfectly check selectors on raw elements easily without building them,
-            // but we can check if it MATCHES the selector.
-            let isTarget = true;
-            if (targetSelectors && targetSelectors.length > 0) {
-                 // Fast check: does this element match any of our targets?
-                 isTarget = targetSelectors.some(s => {
-                     try { return el.matches(s); } catch { return false; }
-                 });
-                 // If not a match, and we have targets, we might want to skip?
-                 // CAUTION: 'el.matches' works on simple selectors. 
-                 // If our selectors are complex (like :has-text), this check fails in JS.
-                 // Strategy: We'll collect ALL candidates as before, then filter in Node.js
-                 // where we have the `buildSelector` logic?
-                 // OR: We trust `el.matches` for ID/Classes?
-                 // BETTER: Just collect everything (it's fast) and filter in extractInteractiveElements (Node side)
-                 // to ensure we use the canonical `buildSelector` output for comparison.
-                 // So we ignore targetSelectors inside this tight loop for now to be safe.
-            }
-
-            if (isInteractive(el)) {
-                const rect = el.getBoundingClientRect();
-
-                if (isVisible(rect)) {
-                    const tag = el.tagName.toLowerCase();
-                    const disabled = isDisabled(el);
-
-                    // Get visible text
-                    let text =
-                        el.innerText?.trim() ||
-                        el.getAttribute('aria-label') ||
-                        el.getAttribute('placeholder') ||
-                        el.getAttribute('title') ||
-                        el.getAttribute('alt') ||
-                        el.getAttribute('value') ||
-                        '';
-
-                    // Truncate
-                    if (text.length > 50) text = text.substring(0, 47) + '...';
-
-                    // Filter out empty non-inputs (but keep disabled elements for awareness)
-                    if (text || tag === 'input' || tag === 'select') {
-                        // Collect attributes
-                        const attributes: Record<string, string> = {};
-                        const attrNames = [
-                            'href', 'name', 'id', 'class', 'type',
-                            'aria-label', 'placeholder', 'value', 'role',
-                            'data-testid', 'data-test-id', 'data-test' // Vital for automation
-                        ];
-
-                        for (const attr of attrNames) {
-                            const val = el.getAttribute(attr);
-                            if (val) attributes[attr] = val.length > 100 ? val.substring(0, 97) + '...' : val;
-                        }
-
-                        // Context (parent ID)
-                        let parent = el.parentElement;
-                        let parentSelector: string | undefined;
-                        while(parent && parent !== document.body) {
-                             if(parent.id) {
-                                 parentSelector = `[id="${parent.id}"]`;
-                                 break;
-                             }
-                             parent = parent.parentElement;
-                        }
-
-                        // Extract options for select elements
-                        let options: Array<{ value: string; label: string }> | undefined;
-                        if (tag === 'select') {
-                            options = getSelectOptions(el as HTMLSelectElement);
-                        }
-
-                        results.push({
-                            tag,
-                            text,
-                            inputType: (el as HTMLInputElement).type,
-                            attributes,
-                            rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                            parentSelector,
-                            options,
-                            disabled: disabled || undefined, // Only include if true
-                        });
-                    }
-                }
-            }
-
-            // Recurse into Shadow DOM
-            if (el.shadowRoot) {
-                walk(el.shadowRoot);
-            }
-
-            // Recurse into children
-            if (el.childElementCount > 0 && el.tagName.toLowerCase() !== 'iframe') {
-                walk(el);
-            }
-        }
-    }
-
-    walk(document.body);
-    return results;
-}
+  walk(document.body);
+  return results;
+})`;
 
 // -----------------------------------------------------------------------------
 // BUILD CSS SELECTOR
@@ -772,12 +722,8 @@ function buildSelector(el: {
   if (attributes['data-test-id']) return `[data-test-id="${escapeCssValue(attributes['data-test-id'])}"]`;
   if (attributes['data-test']) return `[data-test="${escapeCssValue(attributes['data-test'])}"]`;
 
-  // Priority 2: Name (for inputs)
-  if (attributes.name && ['input', 'textarea', 'select'].includes(tag)) {
-    return `${tag}[name="${escapeCssValue(attributes.name)}"]`;
-  }
-
-  // Priority 3: Type + placeholder/value
+  // Priority 2: Radio/Checkbox with value (must come before generic name check)
+  // Radio buttons and checkboxes with the same name need value to disambiguate
   if (tag === 'input' && attributes.type) {
     if ((attributes.type === 'radio' || attributes.type === 'checkbox') && attributes.value) {
       if (attributes.name) {
@@ -785,10 +731,16 @@ function buildSelector(el: {
       }
       return `input[type="${attributes.type}"][value="${escapeCssValue(attributes.value)}"]`;
     }
+  }
 
-    if (attributes.placeholder) {
-      return `input[type="${attributes.type}"][placeholder="${escapeCssValue(attributes.placeholder)}"]`;
-    }
+  // Priority 3: Name (for inputs, textarea, select)
+  if (attributes.name && ['input', 'textarea', 'select'].includes(tag)) {
+    return `${tag}[name="${escapeCssValue(attributes.name)}"]`;
+  }
+
+  // Priority 4: Type + placeholder
+  if (tag === 'input' && attributes.type && attributes.placeholder) {
+    return `input[type="${attributes.type}"][placeholder="${escapeCssValue(attributes.placeholder)}"]`;
   }
 
   // Priority 4: Aria-label
