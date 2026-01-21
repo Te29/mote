@@ -221,6 +221,15 @@ export async function executeAction(
       case 'hover':
         return await executeHover(page, action, elements, verbose);
 
+      case 'select':
+        return await executeSelect(page, action, elements, verbose);
+
+      case 'checkbox':
+        return await executeCheckbox(page, action, elements, verbose);
+
+      case 'drag':
+        return await executeDrag(page, action, elements, verbose);
+
       default:
         // TypeScript exhaustiveness check
         const _exhaustive: never = action.type;
@@ -749,6 +758,195 @@ async function executeHover(
 }
 
 // -----------------------------------------------------------------------------
+// SELECT ACTION
+// -----------------------------------------------------------------------------
+
+/**
+ * Select an option from a dropdown (<select> element).
+ * Uses the `text` field as the value to select.
+ */
+async function executeSelect(
+  page: Page,
+  action: Action,
+  elements: ElementInfo[],
+  verbose: boolean,
+): Promise<ExecuteResult> {
+  if (!action.selector) {
+    return {
+      success: false,
+      error: 'Select action requires a selector (element index)',
+    };
+  }
+
+  if (!action.text) {
+    return { success: false, error: 'Select action requires a value to select (use text field)' };
+  }
+
+  // Look up element
+  const index = parseInt(action.selector, 10);
+  const element = elements.find((el) => el.index === index);
+
+  if (!element) {
+    return {
+      success: false,
+      error: `Element [${index}] not found. Available: 1-${elements.length}`,
+    };
+  }
+
+  if (verbose) {
+    console.log(`📋 Selecting: [${index}] ${element.tag} -> "${action.text}"`);
+  }
+
+  const locator = getElementLocator(page, element);
+
+  try {
+    // Human-like interaction: move to element first
+    if (!element.frameSelector) {
+      await humanMouseMove(page, element.selector);
+    }
+
+    await locator.selectOption(action.text);
+    await humanDelay(page, 200, 400);
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Select failed';
+    return { success: false, error: `Select failed: ${message}` };
+  }
+}
+
+// -----------------------------------------------------------------------------
+// CHECKBOX ACTION
+// -----------------------------------------------------------------------------
+
+/**
+ * Toggle a checkbox or switch element.
+ * Uses `text` field to specify desired state: 'check', 'uncheck', or 'toggle'.
+ */
+async function executeCheckbox(
+  page: Page,
+  action: Action,
+  elements: ElementInfo[],
+  verbose: boolean,
+): Promise<ExecuteResult> {
+  if (!action.selector) {
+    return {
+      success: false,
+      error: 'Checkbox action requires a selector (element index)',
+    };
+  }
+
+  // Look up element
+  const index = parseInt(action.selector, 10);
+  const element = elements.find((el) => el.index === index);
+
+  if (!element) {
+    return {
+      success: false,
+      error: `Element [${index}] not found. Available: 1-${elements.length}`,
+    };
+  }
+
+  const desiredState = action.text?.toLowerCase() || 'toggle';
+  if (verbose) {
+    console.log(`☑️ Checkbox: [${index}] ${element.tag} -> ${desiredState}`);
+  }
+
+  const locator = getElementLocator(page, element);
+
+  try {
+    // Human-like interaction
+    if (!element.frameSelector) {
+      await humanMouseMove(page, element.selector);
+    }
+
+    if (desiredState === 'check') {
+      await locator.check();
+    } else if (desiredState === 'uncheck') {
+      await locator.uncheck();
+    } else {
+      // Toggle: click to toggle current state
+      await locator.click();
+    }
+
+    await humanDelay(page, 150, 300);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Checkbox toggle failed';
+    return { success: false, error: `Checkbox failed: ${message}` };
+  }
+}
+
+// -----------------------------------------------------------------------------
+// DRAG ACTION
+// -----------------------------------------------------------------------------
+
+/**
+ * Drag an element to another element.
+ * Uses `selector` for the source element and `text` for the target element index.
+ */
+async function executeDrag(
+  page: Page,
+  action: Action,
+  elements: ElementInfo[],
+  verbose: boolean,
+): Promise<ExecuteResult> {
+  if (!action.selector) {
+    return {
+      success: false,
+      error: 'Drag action requires a source selector (element index)',
+    };
+  }
+
+  if (!action.text) {
+    return {
+      success: false,
+      error: 'Drag action requires a target (use text field for target element index)',
+    };
+  }
+
+  // Look up source element
+  const sourceIndex = parseInt(action.selector, 10);
+  const sourceElement = elements.find((el) => el.index === sourceIndex);
+
+  // Look up target element
+  const targetIndex = parseInt(action.text, 10);
+  const targetElement = elements.find((el) => el.index === targetIndex);
+
+  if (!sourceElement) {
+    return {
+      success: false,
+      error: `Source element [${sourceIndex}] not found. Available: 1-${elements.length}`,
+    };
+  }
+
+  if (!targetElement) {
+    return {
+      success: false,
+      error: `Target element [${targetIndex}] not found. Available: 1-${elements.length}`,
+    };
+  }
+
+  if (verbose) {
+    console.log(`🔀 Dragging: [${sourceIndex}] "${sourceElement.text}" -> [${targetIndex}] "${targetElement.text}"`);
+  }
+
+  try {
+    const sourceLocator = getElementLocator(page, sourceElement);
+    const targetLocator = getElementLocator(page, targetElement);
+
+    // Perform drag and drop
+    await sourceLocator.dragTo(targetLocator);
+    await humanDelay(page, 300, 500);
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Drag failed';
+    return { success: false, error: `Drag failed: ${message}` };
+  }
+}
+
+// -----------------------------------------------------------------------------
 // UTILITY: PRESS KEY
 // -----------------------------------------------------------------------------
 
@@ -816,82 +1014,4 @@ export async function selectOption(
   await humanDelay(page, 200, 400);
 }
 
-// -----------------------------------------------------------------------------
-// TEST: Run this file directly
-// -----------------------------------------------------------------------------
-// Usage: npm run test:act (shortcut for npx tsx src/act.ts)
 
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  console.log('🧪 Testing act module...\n');
-
-  // Import browser module for testing
-  const { launchBrowser, navigateTo, closeBrowser } =
-    await import('./browser.js');
-  const { observe } = await import('./observe.js');
-
-  const session = await launchBrowser({
-    headless: false,
-    slowMo: 100,
-    stealth: true,
-    profilePath: './mote-profile',
-    timeout: {
-      default: 10000,
-      navigation: 10000,
-      element: 5000,
-      postNavDelay: 500,
-    },
-  });
-
-  try {
-    await navigateTo(session.page, 'https://www.google.com');
-
-    // Observe to get elements
-    const state = await observe(session.page);
-    console.log(`\n🎯 Found ${state.elements.length} interactive elements`);
-
-    // Find the search input
-    const searchInput = state.elements.find(
-      (el) =>
-        el.tag === 'textarea' ||
-        (el.tag === 'input' && el.attributes.name === 'q'),
-    );
-
-    if (searchInput) {
-      console.log(
-        `\n🔍 Found search input: [${searchInput.index}] "${searchInput.text}"`,
-      );
-
-      // Test type action
-      const typeAction: Action = {
-        type: 'type',
-        selector: searchInput.index.toString(),
-        text: 'Thanks for using Mote! Please star the repo if you find it useful. 🌟 https://github.com/Te29/mote',
-        reason: 'Test typing into search box',
-      };
-
-      // Execute directly (no confirmation in act.ts anymore)
-      const result = await executeAction(
-        session.page,
-        typeAction,
-        state.elements,
-      );
-
-      console.log(`\n📋 Result: ${result.success ? 'Success' : 'Failed'}`);
-      if (result.error) console.log(`   Error: ${result.error}`);
-
-      // Test press Enter
-      if (result.success) {
-        console.log('\n⏎ Pressing Enter...');
-        await pressKey(session.page, 'Enter');
-        await session.page.waitForTimeout(10000);
-        console.log(`   New URL: ${session.page.url()}`);
-      }
-    } else {
-      console.log('❌ Could not find search input');
-    }
-  } finally {
-    await closeBrowser(session.browser);
-  }
-
-  console.log('\n✅ Act test complete!');
-}

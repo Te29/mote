@@ -53,8 +53,11 @@ export function parseTimestamp(timestamp: string): Date {
  * - navigate: Go to a new URL
  * - wait: Pause for content to load
  * - hover: Move mouse over an element (for dropdowns, tooltips)
+ * - select: Choose an option from a dropdown menu
+ * - checkbox: Toggle a checkbox or switch
+ * - drag: Drag an element to another location
  */
-export type WebAction = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'hover';
+export type WebAction = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'hover' | 'select' | 'checkbox' | 'drag';
 
 /**
  * A browser action with its parameters.
