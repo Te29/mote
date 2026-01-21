@@ -7,12 +7,13 @@
   "scripts": {
     "start": "tsx src/mote.ts",
     "dev": "tsx watch src/mote.ts",
-    "test:browser": "tsx src/browser.ts",
-    "test:observe": "tsx src/observe.ts",
-    "test:prompt": "tsx src/prompt.ts",
-    "test:reason": "tsx src/reason.ts",
-    "test:act": "tsx src/act.ts",
-    "test:mote": "tsx src/mote.ts"
+    "test": "vitest --exclude **/live.test.ts",
+    "test:live": "vitest run tests/observe/live.test.ts",
+    "test:browser": "vitest run tests/browser/mock.test.ts",
+    "test:browser:live": "vitest run tests/browser/live.test.ts",
+    "test:observe": "vitest run tests/observe/mock.test.ts",
+    "test:observe:live": "vitest run tests/observe/live.test.ts",
+    "test:execution": "vitest run tests/execution_mode.test.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -28,6 +29,7 @@
     "@types/node": "^20.14.9",
     "@types/turndown": "^5.0.5",
     "tsx": "^4.16.0",
-    "typescript": "^5.5.2"
+    "typescript": "^5.5.2",
+    "vitest": "^4.0.17"
   }
 }

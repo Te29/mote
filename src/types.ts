@@ -260,6 +260,42 @@ export interface Goal {
 }
 
 // -----------------------------------------------------------------------------
+// EXECUTION PATH (Cached Strategy)
+// -----------------------------------------------------------------------------
+// A linear sequence of steps learned from a successful Explore run.
+// Used for "Execute Mode" (fast path).
+
+/**
+ * A single cached step in an execution path.
+ * Contains both the expected condition and the action to take.
+ */
+export interface ExecutionStep {
+  /** Unique ID for this step in the sequence */
+  stepId: string;
+
+  /** Human-readable description */
+  description: string;
+
+  /** Expected URL (or pattern) for verification */
+  url: string;
+
+  /** 
+   * The state we expect to see before acting.
+   * Storing full PageState allows robust "Diff" later if needed.
+   */
+  expectedPageState: PageState;
+
+  /**
+   * The specific element we need for the next action.
+   * This is a selector string.
+   */
+  targetElementSelector: string;
+
+  /** The action to perform (Result of previous Reason step) */
+  action: Action;
+}
+
+// -----------------------------------------------------------------------------
 // PRESET
 // -----------------------------------------------------------------------------
 // Pre-configured task templates that include plan structure and prompts.
@@ -298,6 +334,12 @@ export interface Preset {
 
   /** Task-specific configuration */
   customConfig?: Record<string, any>;
+
+  /** 
+   * Learned execution path.
+   * If present and valid, the agent will try "Execute Mode" first.
+   */
+  executionPath?: ExecutionStep[];
 }
 
 // -----------------------------------------------------------------------------
@@ -366,6 +408,12 @@ export interface ElementInfo {
 
   /** Selector to locate the iframe containing this element (if in iframe) */
   frameSelector?: string;
+
+  /** Available options for select dropdowns (value: label pairs) */
+  options?: Array<{ value: string; label: string }>;
+
+  /** Whether the element is disabled */
+  disabled?: boolean;
 }
 
 // -----------------------------------------------------------------------------

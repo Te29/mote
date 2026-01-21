@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Complex Structure Test</title>
+    <style>
+        .hidden-class { display: none; }
+        .invisible { visibility: hidden; }
+        .off-screen { position: absolute; left: -9999px; }
+    </style>
+</head>
+<body>
+    <h1>Complex Structure</h1>
+
+    <!-- 1. Iframe Test -->
+    <div id="frame-container">
+        <!-- We use the relative path to the frame file we just created/will create -->
+        <iframe src="frame_content.html" name="test-frame" title="Test Frame"></iframe>
+    </div>
+
+    <!-- 2. Visibility Test -->
+    <div id="visibility-test">
+        <button id="visible-btn">Visible</button>
+        <button class="hidden-class">Display None</button>
+        <button class="invisible">Invisible</button>
+        <button class="off-screen">Off Screen</button>
+        <button style="width: 0; height: 0; padding: 0; border: 0; overflow: hidden;">Zero Size</button>
+    </div>
+
+    <!-- 3. Selector Priority Test -->
+    <div id="priority-test">
+        <!-- Should use ID -->
+        <input type="text" id="unique-id" name="common-name" placeholder="common-place">
+        
+        <!-- Should use Name -->
+        <input type="text" name="unique-name" placeholder="common-place">
+        
+        <!-- Should use Placeholder -->
+        <input type="text" placeholder="unique-placeholder">
+        
+        <!-- Should use Aria -->
+        <div role="button" aria-label="unique-aria">Div Button</div>
+    </div>
+
+    <!-- 4. Disambiguation Test -->
+    <div id="container-one">
+        <button>Duplicate Text</button>
+    </div>
+    <div id="container-two">
+        <button>Duplicate Text</button>
+    </div>
+
+    <!-- 5. Long Content Test -->
+    <a href="https://example.com/very/long/url/that/should/be/truncated/in/the/selector/generation/logic/to/avoid/breaking/things" id="long-link">Long Link Text</a>
+
+    <!-- 6. Noise for Readability Fallback (simplifyHtml) -->
+    <div class="cookie-banner">Accept Cookies</div>
+    <div class="ad">Buy Now</div>
+    <div class="popup">Subscribe</div>
+    
+    <article id="main-content">
+        <h1>Main Article Title</h1>
+        <p>This is the actual content that should remain. It needs to be long enough to look like an article.</p>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+    </article>
+
+</body>
+</html>

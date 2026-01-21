@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Forms Test Fixture</title>
+</head>
+<body>
+    <h1>Forms Test</h1>
+    
+    <!-- Simple unique ID -->
+    <button id="search-btn">Search</button>
+
+    <!-- Form with various inputs -->
+    <form id="login-form">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" placeholder="Enter username">
+        
+        <label for="password">Password</label>
+        <input type="password" name="password" placeholder="Enter password">
+        
+        <input type="submit" value="Log In">
+    </form>
+
+    <!-- Radio buttons (shared name) -->
+    <fieldset>
+        <legend>Preferences</legend>
+        <label><input type="radio" name="preference" value="dark"> Dark Mode</label>
+        <label><input type="radio" name="preference" value="light"> Light Mode</label>
+    </fieldset>
+
+    <!-- Checkbox (shared name possible) -->
+    <label><input type="checkbox" name="newsletter" value="weekly"> Weekly</label>
+    <label><input type="checkbox" name="newsletter" value="promos"> Promos</label>
+
+    <!-- Ambiguous buttons (need text matching) -->
+    <div>
+        <button>Next</button>
+        <button>Next</button> <!-- Duplicate text on purpose to test ordering/indexing if relevant, or disambiguation -->
+    </div>
+
+    <!-- Link with long href -->
+    <a href="https://example.com/very/long/path/that/might/need/truncation/to/ensure/it/works/correctly/in/selectors">Long Link</a>
+    
+    <!-- Aria label -->
+    <button aria-label="Close Modal">X</button>
+</body>
+</html>

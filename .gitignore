@@ -9,7 +9,6 @@ dist/
 
 # Playwright artifacts
 playwright-report/
-test-results/
 traces/
 
 # Browser profile (contains cookies, logins - DO NOT COMMIT!)
@@ -33,3 +32,6 @@ npm-debug.log*
 
 # Claude permission
 .claude/
+
+# Test Artifacts
+tests/data/
