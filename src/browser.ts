@@ -16,34 +16,16 @@
 // - navigateTo(page, url): Safe navigation with 'domcontentloaded' wait.
 // - getPageContent(page): Returns URL, Title, and Raw HTML.
 // - closeBrowser(browser): Ensures clean shutdown.
-// - waitForElement(page, selector): Boolean check for element visibility.
 // - takeScreenshot(page, path): Saves a PNG of the current view.
 //
 // =============================================================================
 
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
-import { fileURLToPath } from 'url';
 import type { BrowserConfig } from './types.js';
 
 // -----------------------------------------------------------------------------
 // TYPES
 // -----------------------------------------------------------------------------
-
-/**
- * Information about a browser dialog (alert, confirm, prompt).
- */
-export interface DialogInfo {
-  /** Type of dialog: 'alert', 'confirm', 'prompt', 'beforeunload' */
-  type: string;
-  /** Message displayed in the dialog */
-  message: string;
-  /** Default value for prompt dialogs */
-  defaultValue?: string;
-  /** When the dialog appeared */
-  timestamp: string;
-  /** Whether the dialog was accepted or dismissed */
-  accepted: boolean;
-}
 
 /**
  * A bundle of browser resources.
@@ -58,10 +40,6 @@ export interface BrowserSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
-  /** Recent dialogs that appeared (kept for agent awareness) */
-  recentDialogs: DialogInfo[];
-  /** Get and clear recent dialogs */
-  getAndClearDialogs: () => DialogInfo[];
 }
 
 // Module-level variable to store browser config for use across functions.
@@ -89,24 +67,28 @@ let sessionBrowserConfig: BrowserConfig;
  * await session.page.goto('https://google.com')
  */
 export async function launchBrowser(
-  config: BrowserConfig
+  config: BrowserConfig,
 ): Promise<BrowserSession> {
   // Store config at module level so other functions can access timeout settings
   sessionBrowserConfig = config;
 
   // ---------------------------------------------------------------------------
-  // Stealth mode configuration
+  // Launch arguments
   // ---------------------------------------------------------------------------
-  // When stealth is enabled, we apply patches to avoid bot detection:
-  // - Browser launch args to disable automation signals
-  // - Init script to hide navigator.webdriver
-  const stealthArgs = config.stealth
-    ? [
-        '--disable-blink-features=AutomationControlled',
-        '--window-size=1280,800',
-        '--window-position=100,50',
-      ]
-    : ['--window-size=1280,800', '--window-position=100,50'];
+  const launchArgs: string[] = [];
+
+  // Stealth: Disable automation indicators
+  if (config.stealth) {
+    launchArgs.push('--disable-blink-features=AutomationControlled');
+  }
+
+  // Window size: Fixed for headless, maximized for visible
+  // Tip: Use Win+Left or Win+Right to snap browser to half-screen
+  if (config.headless) {
+    launchArgs.push('--window-size=1920,1080');
+  } else {
+    launchArgs.push('--start-maximized');
+  }
 
   const stealthInitScript = `
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -114,7 +96,7 @@ export async function launchBrowser(
 
   // Common context options - use null viewport for responsive behavior
   const contextOptions = {
-    viewport: null as null,  // Responsive - content reflows when window resizes
+    viewport: null as null, // Responsive - content reflows when window resizes
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
   };
@@ -132,7 +114,7 @@ export async function launchBrowser(
     context = await chromium.launchPersistentContext(config.profilePath, {
       headless: config.headless,
       slowMo: config.slowMo,
-      args: stealthArgs.length > 0 ? stealthArgs : undefined,
+      args: launchArgs,
       ...contextOptions,
     });
 
@@ -148,7 +130,7 @@ export async function launchBrowser(
     browser = await chromium.launch({
       headless: config.headless,
       slowMo: config.slowMo,
-      args: stealthArgs.length > 0 ? stealthArgs : undefined,
+      args: launchArgs,
     });
 
     context = await browser.newContext(contextOptions);
@@ -171,34 +153,16 @@ export async function launchBrowser(
   // ---------------------------------------------------------------------------
   // Set up dialog handler
   // ---------------------------------------------------------------------------
-  const recentDialogs: DialogInfo[] = [];
-
+  // Automatically accept all dialogs (alerts, confirms, prompts)
+  // This prevents the browser from blocking indefinitely
   page.on('dialog', async (dialog) => {
-    const dialogInfo: DialogInfo = {
-      type: dialog.type(),
-      message: dialog.message(),
-      defaultValue: dialog.defaultValue() || undefined,
-      timestamp: new Date().toISOString(),
-      accepted: true,
-    };
-
-    recentDialogs.push(dialogInfo);
-    if (recentDialogs.length > 5) {
-      recentDialogs.shift();
-    }
-
-    console.log(`💬 Dialog (${dialog.type()}): "${dialog.message()}" → auto-accepted`);
+    console.log(
+      `💬 Dialog (${dialog.type()}): "${dialog.message()}" → auto-accepted`,
+    );
     await dialog.accept();
   });
 
-  // Helper to get and clear dialogs
-  const getAndClearDialogs = (): DialogInfo[] => {
-    const dialogs = [...recentDialogs];
-    recentDialogs.length = 0;
-    return dialogs;
-  };
-
-  return { browser, context, page, recentDialogs, getAndClearDialogs };
+  return { browser, context, page };
 }
 
 // -----------------------------------------------------------------------------
@@ -292,41 +256,6 @@ export async function closeBrowser(browser: Browser): Promise<void> {
   console.log('🔒 Browser closed');
 }
 
-// -----------------------------------------------------------------------------
-// UTILITY: WAIT FOR ELEMENT
-// -----------------------------------------------------------------------------
-
-/**
- * Wait for an element to appear on the page.
- * Useful before interacting with dynamic content.
- *
- * @param page - Playwright page object
- * @param selector - CSS selector to wait for
- * @param timeout - Optional override for element timeout (defaults to sessionBrowserConfig.timeout.element)
- * @returns true if found, false if timeout
- */
-export async function waitForElement(
-  page: Page,
-  selector: string,
-  timeout?: number
-): Promise<boolean> {
-  try {
-    await page.waitForSelector(selector, {
-      state: 'visible', // Element must be visible, not just in DOM
-      // Use provided timeout or fall back to element-specific timeout from sessionBrowserConfig
-      timeout: timeout ?? sessionBrowserConfig.timeout.element,
-    });
-    return true;
-  } catch {
-    // Timeout - element didn't appear
-    return false;
-  }
-}
-
-// -----------------------------------------------------------------------------
-// UTILITY: TAKE SCREENSHOT
-// -----------------------------------------------------------------------------
-
 /**
  * Take a screenshot of the current page.
  * Useful for debugging and logging.
@@ -337,44 +266,4 @@ export async function waitForElement(
 export async function takeScreenshot(page: Page, path: string): Promise<void> {
   await page.screenshot({ path, fullPage: false });
   console.log(`📸 Screenshot saved: ${path}`);
-}
-
-// -----------------------------------------------------------------------------
-// TEST: Run this file directly to verify browser works
-// Test config (hardcoded for standalone testing)
-// -----------------------------------------------------------------------------
-// Usage: npm run test:browser (shortcut for tsx src/browser.ts)
-
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  console.log('🧪 Testing browser module...\n');
-
-  const config: BrowserConfig = {
-    headless: false,
-    slowMo: 100,
-    timeout: {
-      default: 30000,
-      navigation: 30000,
-      element: 5000,
-      postNavDelay: 500,
-    },
-  };
-
-  const session = await launchBrowser(config);
-
-  try {
-    await navigateTo(session.page, 'https://www.google.com');
-
-    const content = await getPageContent(session.page);
-    console.log('\n📄 Page info:');
-    console.log(`   URL: ${content.url}`);
-    console.log(`   Title: ${content.title}`);
-    console.log(`   HTML length: ${content.html.length} characters`);
-
-    // Wait a moment so you can see the browser
-    await session.page.waitForTimeout(3000);
-  } finally {
-    await closeBrowser(session.browser);
-  }
-
-  console.log('\n✅ Browser test complete!');
 }
