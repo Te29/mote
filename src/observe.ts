@@ -63,12 +63,18 @@
 // =============================================================================
 
 import { JSDOM } from 'jsdom';
-import { fileURLToPath } from 'url';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
-import type { Page, Frame } from 'playwright';
+import type { Page } from 'playwright';
 import type { PageState, ElementInfo, CaptchaInfo } from './types.js';
 import { getPageContent } from './browser.js';
+
+// -----------------------------------------------------------------------------
+// CONSTANTS
+// -----------------------------------------------------------------------------
+
+/** Maximum markdown content length before truncation (~2000 tokens) */
+const MAX_MARKDOWN_LENGTH = 8000;
 
 // -----------------------------------------------------------------------------
 // TURNDOWN CONFIGURATION
@@ -108,7 +114,7 @@ turndown.addRule('simplifyImages', {
 });
 
 // -----------------------------------------------------------------------------
-// MAIN PERCEIVE FUNCTION
+// MAIN OBSERVE FUNCTION
 // -----------------------------------------------------------------------------
 
 /**
@@ -123,15 +129,110 @@ turndown.addRule('simplifyImages', {
  * console.log(state.markdown)  // Clean content
  * console.log(state.elements)  // Clickable elements
  */
-export async function observe(page: Page): Promise<PageState> {
-  // Get page info and HTML using browser module
-  const { url, title, html } = await getPageContent(page);
-
-  // Extract and convert content
-  const markdown = extractAndConvert(html, url);
+export async function observe(
+  page: Page,
+  targetSelectors?: string[],
+): Promise<PageState> {
+  // Get page info using browser module
+  const { url, title } = await getPageContent(page);
 
   // Find interactive elements
-  const elements = await extractInteractiveElements(page);
+  // If targetSelectors is provided, we prioritize finding them
+  const elements = await extractInteractiveElements(page, targetSelectors);
+
+  let markdown = '';
+  // Optimization: If in Execute Mode (targetSelectors provided) and we found them,
+  // we can skip the expensive markdown generation.
+  // We check if we found ALL target selectors (or at least the first one which is usually the action target)
+  const targetsFound = targetSelectors && targetSelectors.every(selector => 
+    elements.some(el => el.selector === selector)
+  );
+
+  if (targetSelectors && targetsFound) {
+     // Skip expensive extraction
+     markdown = '[Execute Mode: Markdown generation skipped for performance]';
+  } else {
+     // Normal Explore Mode OR Fallback (targets not found)
+     // Extract and convert content
+     const cleanHtml = await page.evaluate(() => {
+    // Helper to check if element is visible
+    function isVisible(elem: Element): boolean {
+      const style = window.getComputedStyle(elem);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    }
+
+    /**
+     * Recursive function to clone a node AND its Shadow DOM.
+     * Returns a standard HTMLElement that represents the original node + shadow content.
+     */
+    function cloneWithShadow(node: Node): Node | null {
+      // 1. Text nodes: just clone
+      if (node.nodeType === Node.TEXT_NODE) {
+        return node.cloneNode(true);
+      }
+
+      // 2. Elements: deeply clone, then process Shadow DOM
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element;
+        
+        // Skip hidden elements
+        if (!isVisible(el)) return null;
+
+        // Clone the element (shallow clone first to manage children manually)
+        const clone = el.cloneNode(false) as HTMLElement; // shallow clone
+
+        // Handle Shadow Root
+        if (el.shadowRoot) {
+          // Create a container for shadow content to make it "visible" to Readability/Turndown
+          // We use a custom attribute to debug if needed, but semantically a DIV is fine.
+          const shadowContainer = document.createElement('div');
+          shadowContainer.setAttribute('data-mote-shadow-root', 'true');
+          
+          // Recurse into shadow root children
+          Array.from(el.shadowRoot.childNodes).forEach(child => {
+            const shadowChild = cloneWithShadow(child);
+            if (shadowChild) shadowContainer.appendChild(shadowChild);
+          });
+          
+          clone.appendChild(shadowContainer);
+        }
+
+        // Handle generic Slot elements (where light DOM children are projected)
+        if (el.tagName.toLowerCase() === 'slot') {
+            // In a flattened view, slots are just placeholders. 
+            // The actual content is in the light DOM children of the host.
+            // But since we are flattening the *view*, we might want to just render the children here?
+            // Simpler approach: Just allow normal child processing to handle light DOM.
+        }
+
+        // Recurse into normal children (Light DOM)
+        // Note: In a real Shadow DOM render, light DOM children only show up if projected into slots.
+        // For our purpose (content extraction), reading everything is safer than missing things.
+        Array.from(el.childNodes).forEach(child => {
+             const childClone = cloneWithShadow(child);
+             if (childClone) clone.appendChild(childClone);
+        });
+
+        return clone;
+      }
+
+      // Default: ignore comments etc.
+      return null;
+    }
+
+    // Start cloning from body
+    // We create a wrapper to hold the result
+    const wrapper = document.createElement('div');
+    Array.from(document.body.childNodes).forEach(child => {
+        const cloned = cloneWithShadow(child);
+        if (cloned) wrapper.appendChild(cloned);
+    });
+
+    return wrapper.innerHTML;
+  });
+
+    markdown = extractAndConvert(cleanHtml, url);
+  }
 
   // Check for captcha/anti-bot challenges
   const captcha = await detectCaptcha(page);
@@ -320,9 +421,8 @@ function extractAndConvert(html: string, url: string): string {
     .trim();
 
   // Truncate if too long (LLMs have context limits)
-  const maxLength = 8000; // ~2000 tokens
-  if (markdown.length > maxLength) {
-    markdown = markdown.substring(0, maxLength) + '\n\n[Content truncated...]';
+  if (markdown.length > MAX_MARKDOWN_LENGTH) {
+    markdown = markdown.substring(0, MAX_MARKDOWN_LENGTH) + '\n\n[Content truncated...]';
   }
 
   return markdown;
@@ -371,255 +471,267 @@ function simplifyHtml(document: Document): string {
   return clone.innerHTML;
 }
 
-// -----------------------------------------------------------------------------
-// EXTRACT INTERACTIVE ELEMENTS
-// -----------------------------------------------------------------------------
-
 /**
- * Raw element data extracted from page.evaluate()
- */
-interface RawElementData {
-  tag: string;
-  text: string;
-  inputType?: string;
-  attributes: Record<string, string>;
-  rect: { x: number; y: number; width: number; height: number };
-}
-
-/**
- * Extract interactive elements from a single frame.
- * Used by extractInteractiveElements to process both main page and iframes.
- */
-async function extractElementsFromFrame(
-  frame: Frame,
-): Promise<RawElementData[]> {
-  try {
-    return await frame.evaluate(() => {
-      const results: Array<{
-        tag: string;
-        text: string;
-        inputType?: string;
-        attributes: Record<string, string>;
-        rect: { x: number; y: number; width: number; height: number };
-      }> = [];
-
-      // Selector for interactive elements
-      const selector = [
-        'a[href]',
-        'button',
-        'input:not([type="hidden"])',
-        'textarea',
-        'select',
-        '[role="button"]',
-        '[role="link"]',
-        '[role="textbox"]',
-        '[onclick]',
-      ].join(', ');
-
-      const elements = document.querySelectorAll(selector);
-
-      elements.forEach((el) => {
-        const htmlEl = el as HTMLElement;
-
-        // Skip invisible elements
-        const rect = htmlEl.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-
-        // Skip elements outside viewport (likely hidden)
-        if (rect.top > window.innerHeight || rect.bottom < 0) return;
-        if (rect.left > window.innerWidth || rect.right < 0) return;
-
-        // Get visible text
-        let text =
-          htmlEl.innerText?.trim() ||
-          htmlEl.getAttribute('aria-label') ||
-          htmlEl.getAttribute('placeholder') ||
-          htmlEl.getAttribute('title') ||
-          htmlEl.getAttribute('alt') ||
-          htmlEl.getAttribute('value') ||
-          '';
-
-        // Truncate long text
-        if (text.length > 50) {
-          text = text.substring(0, 47) + '...';
-        }
-
-        // Skip elements with no identifiable text
-        if (!text && el.tagName.toLowerCase() !== 'input') return;
-
-        // Collect relevant attributes
-        const attributes: Record<string, string> = {};
-        const attrNames = [
-          'href',
-          'name',
-          'id',
-          'class',
-          'type',
-          'aria-label',
-          'placeholder',
-        ];
-
-        for (const attr of attrNames) {
-          const value = htmlEl.getAttribute(attr);
-          if (value) {
-            attributes[attr] =
-              value.length > 100 ? value.substring(0, 97) + '...' : value;
-          }
-        }
-
-        results.push({
-          tag: el.tagName.toLowerCase(),
-          text,
-          inputType: (el as HTMLInputElement).type,
-          attributes,
-          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-        });
-      });
-
-      return results;
-    });
-  } catch {
-    // Frame may be detached or cross-origin - skip it
-    return [];
-  }
-}
-
-/**
- * Build a selector for an iframe element.
- * Returns null if no good selector can be built.
- */
-async function buildIframeSelector(
-  _page: Page,
-  frame: Frame,
-): Promise<string | null> {
-  // Get the frame element from the parent frame
-  const parentFrame = frame.parentFrame();
-  if (!parentFrame) return null;
-
-  try {
-    // Find the iframe element in the parent that contains this frame
-    const frameUrl = frame.url();
-    const frameName = frame.name();
-
-    // Try to find by name first (most reliable)
-    if (frameName) {
-      const hasName = await parentFrame.evaluate(
-        (name) => !!document.querySelector(`iframe[name="${name}"]`),
-        frameName,
-      );
-      if (hasName) return `iframe[name="${frameName}"]`;
-    }
-
-    // Try to find by src URL
-    if (frameUrl && frameUrl !== 'about:blank') {
-      // Use partial match for long URLs
-      const urlPart = frameUrl.length > 50 ? frameUrl.substring(0, 40) : frameUrl;
-      const hasSrc = await parentFrame.evaluate(
-        (url) => !!document.querySelector(`iframe[src*="${url}"]`),
-        urlPart,
-      );
-      if (hasSrc) return `iframe[src*="${urlPart}"]`;
-    }
-
-    // Try common iframe identifiers
-    const iframeSelectors = [
-      'iframe[id]',
-      'iframe[class]',
-      'iframe[title]',
-    ];
-
-    for (const sel of iframeSelectors) {
-      const count = await parentFrame.evaluate(
-        (s) => document.querySelectorAll(s).length,
-        sel,
-      );
-      if (count === 1) {
-        // Only use if unique
-        const attr = await parentFrame.evaluate((s) => {
-          const el = document.querySelector(s) as HTMLIFrameElement | null;
-          if (!el) return null;
-          if (el.id) return `iframe[id="${el.id}"]`;
-          if (el.className) return `iframe[class="${el.className}"]`;
-          if (el.title) return `iframe[title="${el.title}"]`;
-          return null;
-        }, sel);
-        if (attr) return attr;
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Find all interactive elements on the page, including those inside iframes.
+ * Find all interactive elements on the page.
  * These are elements the agent can click, type into, etc.
  *
  * Assign each element an index number so the AI can reference them:
  *   [1] Button: "Search"
  *   [2] Input: "Enter your query..."
- *   [3] Link: "About Us" (in iframe)
+ *   [3] Link: "About Us"
  *
  * @param page - Playwright page object
  * @returns Array of ElementInfo objects
  */
 export async function extractInteractiveElements(
   page: Page,
+  targetSelectors?: string[],
 ): Promise<ElementInfo[]> {
-  // ---------------------------------------------------------------------------
-  // What makes an element "interactive"?
-  // ---------------------------------------------------------------------------
-  // - Buttons: <button>, input[type="submit"], input[type="button"]
-  // - Links: <a> with href
-  // - Inputs: <input>, <textarea>, <select>
-  // - Clickable: Elements with onclick or role="button"
-
-  const allElements: Array<RawElementData & { frameSelector?: string }> = [];
-
-  // Extract from main frame
-  const mainElements = await extractElementsFromFrame(page.mainFrame());
-  allElements.push(...mainElements);
-
-  // Extract from all iframes (including nested)
+  const allElements: ElementInfo[] = [];
   const frames = page.frames();
+
+  // We'll use a sequential index across all frames so the AI has unique IDs
+  let currentIndex = 1;
+
   for (const frame of frames) {
-    // Skip main frame (already processed)
-    if (frame === page.mainFrame()) continue;
+    try {
+      // 1. Get the frame selector (if it's not the main frame)
+      let frameSelector: string | undefined;
+      
+      if (frame !== page.mainFrame()) {
+        const frameElement = await frame.frameElement();
+        
+        // Extract attributes to build a selector for this iframe
+        const frameAttrs = await frameElement.evaluate((el) => {
+          const htmlEl = el as HTMLElement;
+          const attributes: Record<string, string> = {};
+          const attrNames = ['name', 'id', 'title', 'class', 'src'];
+          
+          for (const attr of attrNames) {
+             const val = htmlEl.getAttribute(attr);
+             if (val) attributes[attr] = val;
+          }
+          return { tag: 'iframe', text: '', attributes };
+        });
 
-    // Try to build a selector for this iframe
-    const frameSelector = await buildIframeSelector(page, frame);
-    if (!frameSelector) continue; // Skip iframes we can't reliably target
+        // Use our existing builder logic
+        frameSelector = buildSelector(frameAttrs);
+      }
 
-    // Extract elements from this frame
-    const frameElements = await extractElementsFromFrame(frame);
+      // 2. Extract elements from this frame
+      const rawElements = await frame.evaluate(extractInteractiveElementsInContext, targetSelectors);
 
-    // Add frame selector to each element
-    for (const el of frameElements) {
-      allElements.push({ ...el, frameSelector });
+      // 3. Process and add to list
+      for (const el of rawElements) {
+        const selector = buildSelector(el);
+
+        allElements.push({
+          index: currentIndex++,
+          tag: el.tag,
+          text: el.text || `[${el.tag}]`,
+          selector,
+          inputType: el.inputType,
+          attributes: el.attributes,
+          frameSelector,
+          options: el.options,
+          disabled: el.disabled,
+        });
+      }
+
+    } catch (error) {
+      // Log warning for debugging cross-origin or detached frame issues
+      console.warn(`[Observe] Failed to extract elements from frame ${frame.url()}:`, error);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Build element list with selectors
-  // ---------------------------------------------------------------------------
-  // We need to create a unique CSS selector for each element
-  // so Playwright can find it later when we want to click/type
+  return allElements;
+}
 
-  return allElements.map((el, idx) => {
-    const selector = buildSelector(el);
+/**
+ * This function runs INSIDE the browser (in every frame).
+ * It finds interactive elements and returns their raw data.
+ * NOW SUPPORTS SHADOW DOM TRAVERSAL.
+ */
+function extractInteractiveElementsInContext(targetSelectors?: string[]) {
+    const results: Array<{
+      tag: string;
+      text: string;
+      inputType?: string;
+      attributes: Record<string, string>;
+      rect: { x: number; y: number; width: number; height: number };
+      parentSelector?: string;
+      options?: Array<{ value: string; label: string }>;
+      disabled?: boolean;
+    }> = [];
 
-    return {
-      index: idx + 1, // 1-indexed for human readability
-      tag: el.tag,
-      text: el.text || `[${el.tag}]`,
-      selector,
-      inputType: el.inputType,
-      attributes: el.attributes,
-      frameSelector: el.frameSelector,
-    };
-  });
+    // Helper to check visibility
+    function isVisible(rect: DOMRect) {
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.top < window.innerHeight &&
+        rect.bottom > 0 &&
+        rect.left < window.innerWidth &&
+        rect.right > 0
+      );
+    }
+
+    // Interactive element definitions
+    const interactiveTags = new Set(['button', 'a', 'input', 'textarea', 'select', 'details', 'summary']);
+    const interactiveRoles = new Set([
+      'button', 'link', 'textbox', 'checkbox', 'radio', 'switch', 'menuitem',
+      'tab', 'option', 'slider', 'spinbutton', 'combobox', 'searchbox', 'listbox',
+      'menu', 'menuitemcheckbox', 'menuitemradio', 'treeitem'
+    ]);
+
+    function isInteractive(el: HTMLElement) {
+        const tag = el.tagName.toLowerCase();
+        const role = el.getAttribute('role');
+        const hasClick = el.hasAttribute('onclick'); // Crude check, real listeners harder to find
+        const isContentEditable = el.isContentEditable && el.contentEditable === 'true';
+
+        // Basic checks
+        if (interactiveTags.has(tag)) {
+            if (tag === 'input' && el.getAttribute('type') === 'hidden') return false;
+            return true;
+        }
+        if (role && interactiveRoles.has(role)) return true;
+        if (hasClick) return true;
+        if (isContentEditable) return true;
+
+        return false;
+    }
+
+    // Check if element is disabled
+    function isDisabled(el: HTMLElement): boolean {
+        if ((el as HTMLButtonElement | HTMLInputElement).disabled) return true;
+        if (el.getAttribute('aria-disabled') === 'true') return true;
+        return false;
+    }
+
+    // Extract options from select element
+    function getSelectOptions(el: HTMLSelectElement): Array<{ value: string; label: string }> {
+        const options: Array<{ value: string; label: string }> = [];
+        for (const opt of Array.from(el.options)) {
+            if (!opt.disabled) {
+                options.push({
+                    value: opt.value,
+                    label: opt.text.trim() || opt.value
+                });
+            }
+        }
+        // Limit to first 20 options to avoid bloat
+        return options.slice(0, 20);
+    }
+
+    // Recursive Shadow DOM walker
+    function walk(root: Document | ShadowRoot | Element) {
+        const children = root instanceof HTMLIFrameElement ? [] : root.children; // Don't walk into iframes here, Playwright handles frames
+
+        for (let i = 0; i < children.length; i++) {
+            const el = children[i] as HTMLElement;
+
+            // Check if interactive
+            // Filter by targetSelectors if provided (Execute Mode)
+            // Note: We can't perfectly check selectors on raw elements easily without building them,
+            // but we can check if it MATCHES the selector.
+            let isTarget = true;
+            if (targetSelectors && targetSelectors.length > 0) {
+                 // Fast check: does this element match any of our targets?
+                 isTarget = targetSelectors.some(s => {
+                     try { return el.matches(s); } catch { return false; }
+                 });
+                 // If not a match, and we have targets, we might want to skip?
+                 // CAUTION: 'el.matches' works on simple selectors. 
+                 // If our selectors are complex (like :has-text), this check fails in JS.
+                 // Strategy: We'll collect ALL candidates as before, then filter in Node.js
+                 // where we have the `buildSelector` logic?
+                 // OR: We trust `el.matches` for ID/Classes?
+                 // BETTER: Just collect everything (it's fast) and filter in extractInteractiveElements (Node side)
+                 // to ensure we use the canonical `buildSelector` output for comparison.
+                 // So we ignore targetSelectors inside this tight loop for now to be safe.
+            }
+
+            if (isInteractive(el)) {
+                const rect = el.getBoundingClientRect();
+
+                if (isVisible(rect)) {
+                    const tag = el.tagName.toLowerCase();
+                    const disabled = isDisabled(el);
+
+                    // Get visible text
+                    let text =
+                        el.innerText?.trim() ||
+                        el.getAttribute('aria-label') ||
+                        el.getAttribute('placeholder') ||
+                        el.getAttribute('title') ||
+                        el.getAttribute('alt') ||
+                        el.getAttribute('value') ||
+                        '';
+
+                    // Truncate
+                    if (text.length > 50) text = text.substring(0, 47) + '...';
+
+                    // Filter out empty non-inputs (but keep disabled elements for awareness)
+                    if (text || tag === 'input' || tag === 'select') {
+                        // Collect attributes
+                        const attributes: Record<string, string> = {};
+                        const attrNames = [
+                            'href', 'name', 'id', 'class', 'type',
+                            'aria-label', 'placeholder', 'value', 'role',
+                            'data-testid', 'data-test-id', 'data-test' // Vital for automation
+                        ];
+
+                        for (const attr of attrNames) {
+                            const val = el.getAttribute(attr);
+                            if (val) attributes[attr] = val.length > 100 ? val.substring(0, 97) + '...' : val;
+                        }
+
+                        // Context (parent ID)
+                        let parent = el.parentElement;
+                        let parentSelector: string | undefined;
+                        while(parent && parent !== document.body) {
+                             if(parent.id) {
+                                 parentSelector = `[id="${parent.id}"]`;
+                                 break;
+                             }
+                             parent = parent.parentElement;
+                        }
+
+                        // Extract options for select elements
+                        let options: Array<{ value: string; label: string }> | undefined;
+                        if (tag === 'select') {
+                            options = getSelectOptions(el as HTMLSelectElement);
+                        }
+
+                        results.push({
+                            tag,
+                            text,
+                            inputType: (el as HTMLInputElement).type,
+                            attributes,
+                            rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                            parentSelector,
+                            options,
+                            disabled: disabled || undefined, // Only include if true
+                        });
+                    }
+                }
+            }
+
+            // Recurse into Shadow DOM
+            if (el.shadowRoot) {
+                walk(el.shadowRoot);
+            }
+
+            // Recurse into children
+            if (el.childElementCount > 0 && el.tagName.toLowerCase() !== 'iframe') {
+                walk(el);
+            }
+        }
+    }
+
+    walk(document.body);
+    return results;
 }
 
 // -----------------------------------------------------------------------------
@@ -627,147 +739,93 @@ export async function extractInteractiveElements(
 // -----------------------------------------------------------------------------
 
 /**
+ * Escape special CSS selector characters in attribute values.
+ * Characters that need escaping: " \ [ ]
+ */
+function escapeCssValue(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
+}
+
+/**
  * Build a CSS selector that uniquely identifies an element.
- *
- * The priority order:
- * 1. ID (most reliable): #login-button
- * 2. Name attribute: input[name="email"]
- * 3. Unique class: .submit-btn
- * 4. Aria-label: [aria-label="Search"]
- * 5. Text content (for buttons/links): button:has-text("Submit")
- * 6. Combination: input[type="text"][placeholder="Search"]
+ * Prioritizes stable selectors: ID > data-testid > name > aria-label > text.
  */
 function buildSelector(el: {
   tag: string;
   text: string;
   attributes: Record<string, string>;
+  parentSelector?: string;
 }): string {
-  const { tag, text, attributes } = el;
+  const { tag, text, attributes, parentSelector } = el;
 
-  // Priority 1: ID (using attribute selector to avoid needing CSS.escape)
+  // Priority 1: ID (most reliable)
   if (attributes.id) {
-    return `[id="${attributes.id}"]`;
+    return `[id="${escapeCssValue(attributes.id)}"]`;
   }
+
+  // Priority 1b: Test IDs (High signal for automation)
+  if (attributes['data-testid']) return `[data-testid="${escapeCssValue(attributes['data-testid'])}"]`;
+  if (attributes['data-test-id']) return `[data-test-id="${escapeCssValue(attributes['data-test-id'])}"]`;
+  if (attributes['data-test']) return `[data-test="${escapeCssValue(attributes['data-test'])}"]`;
 
   // Priority 2: Name (for inputs)
   if (attributes.name && ['input', 'textarea', 'select'].includes(tag)) {
-    return `${tag}[name="${attributes.name}"]`;
+    return `${tag}[name="${escapeCssValue(attributes.name)}"]`;
   }
 
-  // Priority 3: Aria-label
-  if (attributes['aria-label']) {
-    return `[aria-label="${attributes['aria-label']}"]`;
-  }
-
-  // Priority 4: Type + placeholder for inputs
+  // Priority 3: Type + placeholder/value
   if (tag === 'input' && attributes.type) {
-    if (attributes.placeholder) {
-      return `input[type="${attributes.type}"][placeholder="${attributes.placeholder}"]`;
+    if ((attributes.type === 'radio' || attributes.type === 'checkbox') && attributes.value) {
+      if (attributes.name) {
+         return `input[type="${attributes.type}"][name="${escapeCssValue(attributes.name)}"][value="${escapeCssValue(attributes.value)}"]`;
+      }
+      return `input[type="${attributes.type}"][value="${escapeCssValue(attributes.value)}"]`;
     }
-    return `input[type="${attributes.type}"]`;
+
+    if (attributes.placeholder) {
+      return `input[type="${attributes.type}"][placeholder="${escapeCssValue(attributes.placeholder)}"]`;
+    }
   }
 
-  // Priority 5: Text content for buttons and links
+  // Priority 4: Aria-label
+  if (attributes['aria-label']) {
+    return `[aria-label="${escapeCssValue(attributes['aria-label'])}"]`;
+  }
+
+  // Priority 5: Type only
+  if (tag === 'input' && attributes.type) {
+     return `input[type="${attributes.type}"]`;
+  }
+
+  // Priority 6: Text content (Playwright's :has-text pseudo-selector)
   if ((tag === 'button' || tag === 'a') && text) {
-    // Use Playwright's text selector
-    return `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
+    const textSelector = `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
+    if (parentSelector) {
+        return `${parentSelector} ${textSelector}`;
+    }
+    return textSelector;
   }
 
-  // Priority 6: Href for links
+  // Priority 7: Href
   if (tag === 'a' && attributes.href) {
     const href = attributes.href;
-    // Use partial match for long URLs
     if (href.length > 50) {
-      return `a[href*="${href.substring(0, 30)}"]`;
+      return `a[href*="${escapeCssValue(href.substring(0, 30))}"]`;
     }
-    return `a[href="${href}"]`;
+    return `a[href="${escapeCssValue(href)}"]`;
   }
 
-  // Fallback: tag with any available attribute
+  // Fallback
   if (Object.keys(attributes).length > 0) {
     const [key, value] = Object.entries(attributes)[0];
-    return `${tag}[${key}="${value}"]`;
+    return `${tag}[${key}="${escapeCssValue(value)}"]`;
   }
 
-  // Last resort: just the tag (not unique, but better than nothing)
   return tag;
 }
 
-// -----------------------------------------------------------------------------
-// TEST: Run this file directly to verify observe works
-// -----------------------------------------------------------------------------
-// Usage: npm run test:observe (shortcut for npx tsx src/observe.ts)
 
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  const { launchBrowser, navigateTo, closeBrowser } =
-    await import('./browser.js');
-  const { formatElementsForAI } = await import('./prompt.js');
-
-  console.clear();
-  console.log('='.repeat(60));
-  console.log(' 👁️  MOTE OBSERVE TEST');
-  console.log('='.repeat(60));
-
-  const session = await launchBrowser({
-    headless: false,
-    slowMo: 100,
-    timeout: {
-      default: 30000,
-      navigation: 30000,
-      element: 5000,
-      postNavDelay: 500,
-    },
-  });
-
-  try {
-    const targetUrl = 'https://www.google.com';
-    console.log(`\n🚀 Navigating to: ${targetUrl}...`);
-    await navigateTo(session.page, targetUrl);
-
-    // Observe the page
-    const state = await observe(session.page);
-
-    // 1. METADATA
-    console.log(`\n📍 [METADATA]`);
-    console.log(`   Title:  "${state.title}"`);
-    console.log(`   URL:    ${state.url}`);
-
-    // 2. READING MATERIAL (Markdown)
-    console.log(`\n📄 [READING MATERIAL] (Markdown Content)`);
-    console.log(`   Length: ${state.markdown.length} chars`);
-    console.log('-'.repeat(40));
-    console.log(
-      state.markdown.substring(0, 300).replace(/\n/g, '\n   ') +
-        '\n   ... [truncated]',
-    );
-    console.log('-'.repeat(40));
-
-    // 3. CONTROL PANEL (Elements)
-    console.log(`\n🕹️  [CONTROL PANEL] (Interactive Elements)`);
-    console.log(`   Found: ${state.elements.length} clickable items`);
-    console.log(`   Inspecting first 5 items to verify AI match:\n`);
-
-    state.elements.slice(0, 5).forEach((el) => {
-      // We print the "AI View" and the "System View" side by side
-      // to ensure the selector logic matches the human description.
-      console.log(`   [${el.index}] 🏷️  TYPE: <${el.tag}>`);
-      console.log(`       👀 AI SEES:  ${formatElementsForAI([el])}`);
-      console.log(`       🤖 SYS USES: ${el.selector}`);
-      console.log('');
-    });
-
-    if (state.elements.length > 5) {
-      console.log(
-        `   ... and ${state.elements.length - 5} more elements hidden.`,
-      );
-    }
-
-    await session.page.waitForTimeout(2000);
-  } catch (error) {
-    console.error('❌ Test failed:', error);
-  } finally {
-    await closeBrowser(session.browser);
-  }
-
-  console.log('\n✅ Test execution finished.');
-}
