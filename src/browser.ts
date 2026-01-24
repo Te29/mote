@@ -179,7 +179,16 @@ export async function launchBrowser(
  * await navigateTo(page, 'https://google.com')
  */
 export async function navigateTo(page: Page, url: string): Promise<void> {
-  console.log(`📍 Navigating to: ${url}`);
+  // Normalize URL logic
+  let targetUrl = url.trim();
+
+  // If no protocol is provided, default to https://
+  // Allow: http://, https://, file://, about:
+  if (!/^(https?|file):\/\//i.test(targetUrl) && !targetUrl.startsWith('about:')) {
+    targetUrl = `https://${targetUrl}`;
+  }
+
+  console.log(`📍 Navigating to: ${targetUrl}`);
 
   // ---------------------------------------------------------------------------
   // Understanding waitUntil options
@@ -198,8 +207,11 @@ export async function navigateTo(page: Page, url: string): Promise<void> {
   // Use 'domcontentloaded' as a balance:
   // - Fast enough for simple pages
   // - Can add explicit waits for dynamic content
+  //
+  // 'commit'           - Wait until the response is committed (headers received)
+  //                      Useful if we just want to start executing fast
 
-  await page.goto(url, {
+  await page.goto(targetUrl, {
     waitUntil: 'domcontentloaded',
     // Uses navigation-specific timeout from sessionBrowserConfig (set in launchBrowser)
     timeout: sessionBrowserConfig.timeout.navigation,
