@@ -66,7 +66,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import type { Page } from 'playwright';
-import type { PageState, ElementInfo, CaptchaInfo } from './types.js';
+import type { PageState, ElementInfo, CaptchaInfo } from './types/index.js';
 import { getPageContent } from './browser.js';
 
 // -----------------------------------------------------------------------------
@@ -455,6 +455,7 @@ export async function extractInteractiveElements(
         parentSelector?: string;
         options?: Array<{ value: string; label: string }>;
         disabled?: boolean;
+        offscreen?: boolean;
       }>;
 
       // 3. Process and add to list
@@ -471,6 +472,7 @@ export async function extractInteractiveElements(
           frameSelector,
           options: el.options,
           disabled: el.disabled,
+          offscreen: el.offscreen,
         });
       }
 
@@ -548,10 +550,17 @@ const EXTRACT_CLEAN_HTML_SCRIPT = `(function() {
 const EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT = `(function(targetSelectors) {
   var results = [];
 
-  function isVisible(rect) {
+  // Check if element has non-zero size (exists in DOM layout)
+  // NOTE: We intentionally do NOT filter by viewport position.
+  // The LLM needs to know about ALL interactive elements, including those
+  // below the fold. It can then decide to scroll if needed.
+  function hasSize(rect) {
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  // Check if element is within the current viewport (for prioritization)
+  function isInViewport(rect) {
     return (
-      rect.width > 0 &&
-      rect.height > 0 &&
       rect.top < window.innerHeight &&
       rect.bottom > 0 &&
       rect.left < window.innerWidth &&
@@ -603,16 +612,67 @@ const EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT = `(function(targetSelectors) {
     return options;
   }
 
+  // Helper to check if an invisible input has a visible label
+  function hasVisibleLabel(el) {
+      if (el.tagName.toLowerCase() !== 'input') return false;
+      
+      // Check for explicit label tag with 'for'
+      if (el.id) {
+          var label = document.querySelector('label[for="' + el.id + '"]');
+          if (label && label.offsetParent !== null) return true;
+      }
+      
+      // Check for parent label
+      var parent = el.parentElement;
+      while(parent && parent !== document.body) {
+          if (parent.tagName.toLowerCase() === 'label' && parent.offsetParent !== null) return true;
+          // Heuristic: Check for custom container wrappers often used in modern frameworks 
+          // e.g. .RadioButton---label
+          if (parent.className && typeof parent.className === 'string' && 
+             (parent.className.includes('Radio') || parent.className.includes('Checkbox') || 
+              parent.className.includes('Switch') || parent.className.includes('Control'))) {
+              if (parent.offsetParent !== null) return true;
+          }
+          if (parent.childElementCount > 3) break; // Don't go too high up
+          parent = parent.parentElement;
+      }
+      return false;
+  }
+
   function walk(root) {
     var children = root instanceof HTMLIFrameElement ? [] : root.children;
 
     for (var i = 0; i < children.length; i++) {
       var el = children[i];
 
-      if (isInteractive(el)) {
-        var rect = el.getBoundingClientRect();
+      // Special check for invisible inputs (common in custom UI libraries like Percipio)
+      // If it's a hidden radio/checkbox but has a visible label/container, we treat it as interactive.
+      var isSpecialHiddenInput = false;
+      if (el.tagName.toLowerCase() === 'input' && 
+         (el.type === 'radio' || el.type === 'checkbox') &&
+         (el.style.opacity === '0' || el.style.visibility === 'hidden' || el.style.display === 'none' || el.getAttribute('hidden') !== null || el.offsetWidth === 0)) {
+           // It's invisible. Does it have a visible partner?
+           if (hasVisibleLabel(el)) {
+               isSpecialHiddenInput = true;
+           }
+      }
 
-        if (isVisible(rect)) {
+      var isInt = isInteractive(el);
+
+      if (isInt || isSpecialHiddenInput) {
+        var rect = el.getBoundingClientRect();
+        
+        // For special hidden inputs, if the element itself has no rect, 
+        // try to use the parent/label rect for visibility determination
+        // but keep the element itself for interaction (Playwright can force click)
+        if (isSpecialHiddenInput && !hasSize(rect)) {
+             var parentForRect = el.parentElement;
+             if (parentForRect) rect = parentForRect.getBoundingClientRect();
+        }
+
+        // Include element if it has size (even if outside viewport)
+        // This ensures buttons below the fold are captured
+        if (hasSize(rect)) {
           var tag = el.tagName.toLowerCase();
           var disabled = isDisabled(el);
 
@@ -641,6 +701,11 @@ const EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT = `(function(targetSelectors) {
               if (val) attributes[attr] = val.length > 100 ? val.substring(0, 97) + '...' : val;
             }
 
+            // Special handling for checkbox/radio checked state
+            if (el.type === 'checkbox' || el.type === 'radio') {
+              attributes['checked'] = el.checked ? 'true' : 'false';
+            }
+
             var parent = el.parentElement;
             var parentSelector;
             while (parent && parent !== document.body) {
@@ -656,6 +721,9 @@ const EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT = `(function(targetSelectors) {
               options = getSelectOptions(el);
             }
 
+            // Mark if element is outside viewport (might need scrolling)
+            var inViewport = isInViewport(rect);
+
             results.push({
               tag: tag,
               text: text,
@@ -664,7 +732,8 @@ const EXTRACT_INTERACTIVE_ELEMENTS_SCRIPT = `(function(targetSelectors) {
               rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
               parentSelector: parentSelector,
               options: options,
-              disabled: disabled || undefined
+              disabled: disabled || undefined,
+              offscreen: !inViewport || undefined
             });
           }
         }

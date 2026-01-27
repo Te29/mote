@@ -21,7 +21,7 @@
 // =============================================================================
 
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
-import type { BrowserConfig } from './types.js';
+import type { ResolvedConfig } from './types/index.js';
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -42,10 +42,26 @@ export interface BrowserSession {
   page: Page;
 }
 
+/**
+ * Configuration subset needed for the browser module.
+ * Extracted from the main ResolvedConfig to maintain loose coupling while ensuring type safety.
+ */
+export type BrowserOptions = Pick<
+  ResolvedConfig,
+  | 'headless'
+  | 'slowMo'
+  | 'profilePath'
+  | 'stealth'
+  | 'timeoutDefault'
+  | 'timeoutNavigation'
+  | 'timeoutElement'
+  | 'postNavDelay'
+>;
+
 // Module-level variable to store browser config for use across functions.
 // Set once during launchBrowser() and accessed by navigateTo(), waitForElement(), etc.
 // This avoids passing config through every function call.
-let sessionBrowserConfig: BrowserConfig;
+let sessionBrowserConfig: BrowserOptions;
 
 // -----------------------------------------------------------------------------
 // LAUNCH BROWSER
@@ -55,19 +71,20 @@ let sessionBrowserConfig: BrowserConfig;
  * Launch a new browser instance with the given configuration.
  * Stores config in sessionBrowserConfig for access by other module functions.
  *
- * @param config - Browser settings (headless, slowMo, timeout object)
+ * @param config - Browser settings (headless, slowMo, timeouts)
  * @returns A session containing browser, context, and page
  *
  * @example
  * const session = await launchBrowser({
  *   headless: false,
  *   slowMo: 100,
- *   timeout: { default: 30000, navigation: 30000, element: 5000, postNavDelay: 500 }
+ *   timeoutDefault: 30000,
+ *   // ... other options
  * })
  * await session.page.goto('https://google.com')
  */
 export async function launchBrowser(
-  config: BrowserConfig,
+  config: BrowserOptions,
 ): Promise<BrowserSession> {
   // Store config at module level so other functions can access timeout settings
   sessionBrowserConfig = config;
@@ -126,7 +143,7 @@ export async function launchBrowser(
 
     console.log(`🌐 Browser launched (profile: ${config.profilePath})`);
   } else {
-    // Ephemeral: fresh browser each time (original behavior)
+    // Ephemeral: fresh browser each time
     browser = await chromium.launch({
       headless: config.headless,
       slowMo: config.slowMo,
@@ -148,7 +165,7 @@ export async function launchBrowser(
   }
 
   // Set default timeout for all page operations
-  page.setDefaultTimeout(config.timeout.default);
+  page.setDefaultTimeout(config.timeoutDefault);
 
   // ---------------------------------------------------------------------------
   // Set up dialog handler
@@ -214,13 +231,13 @@ export async function navigateTo(page: Page, url: string): Promise<void> {
   await page.goto(targetUrl, {
     waitUntil: 'domcontentloaded',
     // Uses navigation-specific timeout from sessionBrowserConfig (set in launchBrowser)
-    timeout: sessionBrowserConfig.timeout.navigation,
+    timeout: sessionBrowserConfig.timeoutNavigation,
   });
 
   // Give JavaScript a moment to run after DOM is ready.
   // Many sites load content dynamically after DOMContentLoaded.
   // Uses postNavDelay from sessionBrowserConfig for configurable wait time.
-  await page.waitForTimeout(sessionBrowserConfig.timeout.postNavDelay);
+  await page.waitForTimeout(sessionBrowserConfig.postNavDelay);
 
   console.log(`✅ Page loaded: ${page.url()}`);
 }

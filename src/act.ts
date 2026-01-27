@@ -20,7 +20,7 @@
 // =============================================================================
 
 import type { Page, Download, Locator } from 'playwright';
-import type { Action, ElementInfo, ExecuteResult, DownloadInfo } from './types.js';
+import type { Action, ElementInfo, ExecuteResult, DownloadInfo } from './types/index.js';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import * as os from 'os';
@@ -230,6 +230,9 @@ export async function executeAction(
       case 'drag':
         return await executeDrag(page, action, elements, verbose);
 
+      case 'multi_click':
+        return await executeMultiClick(page, action, elements, verbose);
+
       default:
         // TypeScript exhaustiveness check
         const _exhaustive: never = action.type;
@@ -341,14 +344,52 @@ async function executeClick(
     // Click using locator (works for both main frame and iframe elements)
     const offsetX = randomDelay(-3, 3);
     const offsetY = randomDelay(-2, 2);
-    await locator.click({
-      timeout: 5000,
-      position: { x: offsetX, y: offsetY },
-    });
+    
+    try {
+      await locator.click({
+        timeout: 5000,
+        position: { x: offsetX, y: offsetY },
+      });
+    } catch (firstError) {
+      const msg = firstError instanceof Error ? firstError.message : String(firstError);
+      
+      // If timeout or not visible, try scrolling explicitly and retrying
+      if (msg.includes('Timeout') || msg.includes('visible') || msg.includes('outside the bounds')) {
+         if (verbose) console.log(`   ⚠️ Click failed (${msg}). Attempting explicit scroll & retry...`);
+         
+         await locator.scrollIntoViewIfNeeded({ timeout: 2000 });
+         await page.waitForTimeout(500);
+         
+         // Retry click (listeners are still active for ~1s? No, they might have timed out.)
+         // We must depend on the original PROMISES if they are long-lived, or create new ones?
+         // The original listeners had 1s timeout to resolve(null). They are likely dead.
+         // We need new listeners for the retry.
+         
+         const retryPagePromise = new Promise<Page | null>((resolve) => {
+            const t = setTimeout(() => resolve(null), 2000); 
+            context.once('page', (p) => { clearTimeout(t); resolve(p); });
+         });
+         const retryDlPromise = new Promise<Download | null>((resolve) => {
+            const t = setTimeout(() => resolve(null), 2000); 
+            page.once('download', (d) => { clearTimeout(t); resolve(d); });
+         });
+         
+         // Retry the click
+         await locator.click({ timeout: 5000 });
+         
+         // Update the result variables to capture from retry
+         newPage = await retryPagePromise;
+         download = await retryDlPromise;
+         
+      } else {
+         throw firstError; // Re-throw if not a scrollable issue (e.g. obscured)
+      }
+    }
 
-    // Check if a new tab was opened
-    newPage = await newPagePromise;
-
+    // Check if a new tab was opened (from either attempt)
+    // NOTE: If first attempt failed, newPage is null. If retry succeeded, we overwrote newPage.
+    if (!newPage) newPage = await newPagePromise; // Fallback to original if not set (though original likely expired)
+    
     if (newPage) {
       // Wait for new tab to load
       if (verbose) {
@@ -364,7 +405,7 @@ async function executeClick(
     }
 
     // Check if a download was triggered
-    download = await downloadPromise;
+    if (!download) download = await downloadPromise;
 
     if (download) {
       // Save download to a temp directory
@@ -1014,4 +1055,94 @@ export async function selectOption(
   await humanDelay(page, 200, 400);
 }
 
+// -----------------------------------------------------------------------------
+// MULTI-CLICK ACTION
+// -----------------------------------------------------------------------------
 
+/**
+ * Click multiple elements in sequence.
+ * Used for selecting multiple checkboxes at once.
+ */
+async function executeMultiClick(
+  page: Page,
+  action: Action,
+  elements: ElementInfo[],
+  verbose: boolean,
+): Promise<ExecuteResult> {
+  if (!action.selectors || action.selectors.length === 0) {
+    return {
+      success: false,
+      error: 'multi_click action requires selectors array',
+    };
+  }
+
+  if (verbose) {
+    console.log(`🖱️  Multi-clicking: [${action.selectors.join(', ')}]`);
+  }
+
+  const errors: string[] = [];
+  let successCount = 0;
+
+  for (const selectorStr of action.selectors) {
+    const index = parseInt(selectorStr, 10);
+    const element = elements.find((el) => el.index === index);
+
+    if (!element) {
+      errors.push(`Element [${index}] not found`);
+      continue;
+    }
+
+    // Skip already-checked checkboxes (unless we want to uncheck? but usually multi_click is for selecting)
+    if (element.attributes['checked'] === 'true') {
+      if (verbose) {
+        console.log(`   ⏭️ Skipping [${index}] - already checked`);
+      }
+      successCount++; // Count as success since it's in the desired state
+      continue;
+    }
+
+    if (verbose) {
+      console.log(`   🖱️ Clicking [${index}] ${element.tag} "${element.text}"`);
+    }
+
+    const locator = getElementLocator(page, element);
+
+    try {
+      // Standard click with 5s timeout
+      await locator.click({ timeout: 5000 });
+      // Brief pause for state to settle
+      await page.waitForTimeout(500); 
+      successCount++;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Click failed';
+      if (verbose) console.log(`   ⚠️ Standard click failed for [${index}]: ${message}. Trying JS fallback...`);
+      
+      // Try JS click fallback as it's more reliable for obscured/moving elements
+      try {
+        await locator.evaluate((el) => (el as HTMLElement).click());
+        await page.waitForTimeout(500);
+        successCount++;
+        if (verbose) {
+          console.log(`   ✓ JS click succeeded for [${index}]`);
+        }
+      } catch (jsError) {
+        const jsMsg = jsError instanceof Error ? jsError.message : 'JS click failed';
+        errors.push(`[${index}]: ${jsMsg}`);
+      }
+    }
+  }
+
+  // Multi-click is only a success if ALL requested elements were successfully handled
+  if (successCount < action.selectors.length) {
+    return {
+      success: false,
+      error: `Multi-click partially failed (${successCount}/${action.selectors.length}): ${errors.join('; ')}`,
+    };
+  }
+
+  if (verbose) {
+    console.log(`   ✅ Successfully clicked all ${successCount} elements`);
+  }
+
+  return { success: true };
+}

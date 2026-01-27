@@ -19,27 +19,29 @@ import type {
   PageState,
   Goal,
   Preset,
-  LLMConfig,
+  ResolvedConfig,
   StepResult,
   ThinkResult,
-  SessionPlan,
+  SessionTracker,
   Action,
-  ElementInfo
-} from './types.js';
-import { getCurrentCycleIndex } from './types.js';
+  ElementInfo,
+  CycleStrategy
+} from './types/index.js';
+import { getCurrentCycleIndex } from './types/index.js';
 import {
   buildExecutionPrompt,
   buildDriftAnalysisPrompt,
-  logTokenUsage,
+  buildStrategyPrompt,
   buildPlanGenerationPrompt,
   buildReplanPrompt,
   buildSimpleQuestionPrompt,
-  type ExecutionMetrics,
+  type InterventionMetrics,
   type Intervention,
 } from './prompt.js';
+import { logPromptToFile } from './utils/debug.js';
 
 // Re-export types from prompt.ts for backwards compatibility
-export type { ExecutionMetrics, Intervention } from './prompt.ts';
+export type { InterventionMetrics, Intervention } from './prompt.js';
 
 // Load environment variables
 config();
@@ -49,8 +51,9 @@ config();
 // -----------------------------------------------------------------------------
 
 const ActionSchema = z.object({
-  type: z.enum(['click', 'type', 'scroll', 'navigate', 'wait']),
-  selector: z.string().optional(), // Index or selector
+  type: z.enum(['click', 'type', 'scroll', 'navigate', 'wait', 'multi_click']),
+  selector: z.string().optional(), // Index or selector for single actions
+  selectors: z.array(z.string()).optional(), // Multiple indices for multi_click
   text: z.string().optional(),
   reason: z.string(),
 });
@@ -83,9 +86,14 @@ const ThinkResultSchema = z.discriminatedUnion('resultType', [
 ]);
 
 const DriftAnalysisSchema = z.object({
-  status: z.enum(['approved', 'update_required', 'fallback']),
+  decision: z.enum(['can_proceed', 'cannot_complete']),
   reason: z.string(),
-  correction: z.object({ selector: z.string() }).optional(),
+  adaptedAction: z.object({
+    type: z.string(),
+    selector: z.string().optional(),
+    text: z.string().optional(),
+    reason: z.string(),
+  }).optional(),
 });
 
 export type DriftAnalysisResult = z.infer<typeof DriftAnalysisSchema>;
@@ -103,12 +111,14 @@ export interface ValidationResult {
 // LLM CLIENT
 // -----------------------------------------------------------------------------
 
-export function createLLMClient(llmConfig?: LLMConfig): OpenAI {
+export function createLLMClient(
+  llmConfig?: Pick<ResolvedConfig, 'llmBaseUrl' | 'llmApiKey' | 'llmModel'>,
+): OpenAI {
   const baseURL =
-    llmConfig?.baseUrl ||
+    llmConfig?.llmBaseUrl ||
     process.env.LLM_BASE_URL ||
     'http://localhost:11434/v1';
-  const apiKey = llmConfig?.apiKey || process.env.LLM_API_KEY || 'ollama';
+  const apiKey = llmConfig?.llmApiKey || process.env.LLM_API_KEY || 'ollama';
 
   return new OpenAI({
     baseURL,
@@ -159,7 +169,7 @@ export async function evaluateDrift(
           ],
           response_format: { type: 'json_object' },
           temperature: 0.1, // Very precise
-          max_tokens: 300
+          max_tokens: 500
       });
 
       const content = response.choices[0]?.message?.content || '{}';
@@ -167,8 +177,8 @@ export async function evaluateDrift(
 
   } catch (error) {
       console.error('❌ Drift Analysis Failed:', String(error));
-      // Fail-safe: If we can't verify, we MUST fall back to explore mode
-      return { status: 'fallback', reason: 'Drift analysis failed' };
+      // Fail-safe: If we can't evaluate drift, assume we cannot complete
+      return { decision: 'cannot_complete', reason: 'Drift analysis failed - unable to verify page state' };
   }
 }
 
@@ -180,11 +190,12 @@ export async function think(
   pageState: PageState,
   goal: Goal | undefined,
   preset: Preset | undefined,
-  plan: SessionPlan,
+  tracker: SessionTracker,
   history: StepResult[],
   client: OpenAI,
-  sessionState: ExecutionMetrics,
+  interventionMetrics: InterventionMetrics,
   intervention?: Intervention,
+  customSystemPrompt?: string,
 ): Promise<ThinkResult> {
   const model = getDefaultModel();
   const verbose = process.env.VERBOSE === 'true';
@@ -193,16 +204,18 @@ export async function think(
     pageState,
     goal,
     preset,
-    plan,
+    tracker,
     history,
-    sessionState,
+    interventionMetrics,
     intervention,
+    undefined, // limits
+    customSystemPrompt,
   );
 
-  if (verbose) {
-    console.log('\n🧠 Thinking...');
-    logTokenUsage(tokenStats);
-  }
+  // Always log prompts to trace file for debugging
+  logPromptToFile('SYSTEM PROMPT', systemPrompt);
+  logPromptToFile('SITUATION PROMPT', situationPrompt);
+  logPromptToFile('TOKEN STATS', `Total: ${tokenStats.totalTokens} (System: ${tokenStats.systemTokens}, Situation: ${tokenStats.situationTokens})`);
 
   try {
     const response = await client.chat.completions.create({
@@ -310,9 +323,9 @@ export async function askLLM(
 export async function generatePlan(
   goal: Goal,
   client: OpenAI,
-  existingPlan?: SessionPlan,
+  existingPlan?: SessionTracker,
   replanReason?: string,
-): Promise<SessionPlan> {
+): Promise<SessionTracker> {
   const model = getDefaultModel();
   const now = new Date();
 
@@ -343,7 +356,7 @@ export async function generatePlan(
     const cycleDescription = parsed.cycleDescription || 'Complete the task';
     const goalSummary = parsed.goalSummary || goal.description;
 
-    let cycles: SessionPlan['cycles'];
+    let cycles: SessionTracker['cycles'];
 
     if (existingPlan && replanReason) {
       const completedCycles = existingPlan.cycles.filter((c) => c.isCompleted);
@@ -394,33 +407,64 @@ export async function generatePlan(
 // VALIDATE SESSION PLAN
 // -----------------------------------------------------------------------------
 
-export function validateSessionPlan(plan: SessionPlan): ValidationResult {
+export function validateSessionPlan(tracker: SessionTracker): ValidationResult {
   const errors: string[] = [];
 
-  if (!plan.goalSummary || typeof plan.goalSummary !== 'string' || plan.goalSummary.trim() === '') {
+  if (!tracker.goalSummary || typeof tracker.goalSummary !== 'string' || tracker.goalSummary.trim() === '') {
     errors.push('goalSummary is required and must be a non-empty string');
   }
 
-  if (!plan.cycleDescription || typeof plan.cycleDescription !== 'string' || plan.cycleDescription.trim() === '') {
+  if (!tracker.cycleDescription || typeof tracker.cycleDescription !== 'string' || tracker.cycleDescription.trim() === '') {
     errors.push('cycleDescription is required and must be a non-empty string');
   }
 
-  if (!Array.isArray(plan.cycles)) {
+  if (!Array.isArray(tracker.cycles)) {
     errors.push('cycles must be an array');
-  } else if (plan.cycles.length === 0) {
+  } else if (tracker.cycles.length === 0) {
     errors.push('cycles must contain at least one cycle');
   } else {
     // Basic structural check only
-    plan.cycles.forEach((cycle, idx) => {
+    tracker.cycles.forEach((cycle, idx) => {
       if (typeof cycle.isCompleted !== 'boolean') errors.push(`cycles[${idx}].isCompleted must be a boolean`);
     });
   }
 
-  if (typeof plan.startedAt !== 'string') errors.push('startedAt must be a string');
-  if (typeof plan.lastUpdatedAt !== 'string') errors.push('lastUpdatedAt must be a string');
+  if (typeof tracker.startedAt !== 'string') errors.push('startedAt must be a string');
+  if (typeof tracker.lastUpdatedAt !== 'string') errors.push('lastUpdatedAt must be a string');
 
   return {
     valid: errors.length === 0,
     errors,
   };
 }
+
+/**
+ * Extract a winning strategy from successful history.
+ * Used for multi-cycle goals to improve subsequent cycles.
+ */
+export async function generateStrategy(
+  history: StepResult[],
+  client: OpenAI
+): Promise<CycleStrategy | undefined> {
+  const { systemPrompt, userPrompt } = buildStrategyPrompt(history);
+  const model = getDefaultModel();
+
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+    });
+
+    const content = response.choices[0]?.message?.content || '{}';
+    return JSON.parse(content) as CycleStrategy;
+  } catch (error) {
+    console.error('Failed to generate strategy:', error);
+    return undefined;
+  }
+}
+
