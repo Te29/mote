@@ -277,7 +277,6 @@ export async function requestIntervention(
     console.log(`  ${colors.bright}[s]kip${colors.reset}       - Skip this step/cycle`);
     console.log(`  ${colors.bright}[fs] success${colors.reset} - Override to success`);
     console.log(`  ${colors.bright}[ff] fail${colors.reset}    - Override to failure`);
-    console.log(`  ${colors.bright}[p]ause${colors.reset}      - Save state and exit`);
     console.log(`  ${colors.bright}[q]uit${colors.reset}       - Stop immediately`);
     console.log(colors.gray + '─'.repeat(60) + colors.reset);
 
@@ -337,11 +336,6 @@ export async function requestIntervention(
         };
       }
 
-      case 'p':
-      case 'pause':
-        console.log(`${colors.yellow}⏸ Pausing${colors.reset}`);
-        return { type: 'pause' };
-
       case 'q':
       case 'quit':
         console.log(`${colors.red}🛑 Quitting${colors.reset}`);
@@ -366,22 +360,6 @@ export function processInterventionControl(
       return { action: 'continue' };
 
     case 'reject':
-      // Handler must deal with reject specifically (usually by thinking again)
-      // But if generic reject is mapped to termination elsewhere, we map it to continue here
-      // expecting the handler to check response.type derived logic.
-      // ACTUALLY: The handlers logic for 'reject' is unique (reasoning loop).
-      // So 'reject' maps to 'continue' but the HANDLER sees the type is 'reject' in the response object?
-      // Wait, this helper is meant to simplify the switch cases.
-      // If we return 'continue', the handler needs the original response to know it was a rejection.
-      // So handlers should call this function but ALSO have access to the original response type if needed?
-      
-      // Let's look at the usage pattern.
-      // Most handlers do unique things for 'approve', 'reject', 'modify'.
-      // They do STANDARD things for 'skip', 'quit', 'pause', 'fs', 'ff'.
-      
-      // So this helper returns 'terminate' for quit/pause/ff(sometimes)/fs(sometimes).
-      // Actually, fs/ff return 'succeed'/'terminate' generally.
-      
       return { action: 'continue' }; // Default for complex types handled by caller
 
     case 'modify':
@@ -395,9 +373,6 @@ export function processInterventionControl(
 
     case 'force_fail':
       return { action: 'terminate', reason: response.message || 'Forced failure' };
-
-    case 'pause':
-      return { action: 'terminate', reason: 'User paused' };
 
     case 'quit':
       return { action: 'terminate', reason: 'User quit' };

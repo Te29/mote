@@ -1,7 +1,7 @@
 
 import { describe, it, expect } from 'vitest';
-import { processInterventionControl, InterventionControl } from '../src/interaction.js';
-import { InterventionResponse } from '../src/types/index.js';
+import { processInterventionControl, InterventionControl } from '../../src/interaction.js';
+import { InterventionResponse } from '../../src/types/index.js';
 
 describe('Interaction Logic', () => {
   describe('processInterventionControl', () => {
@@ -41,11 +41,7 @@ describe('Interaction Logic', () => {
       expect(processInterventionControl(response)).toEqual(expected);
     });
 
-    it('should map pause to terminate', () => {
-      const response: InterventionResponse = { type: 'pause' };
-      const expected: InterventionControl = { action: 'terminate', reason: 'User paused' };
-      expect(processInterventionControl(response)).toEqual(expected);
-    });
+
 
     it('should map quit to terminate', () => {
       const response: InterventionResponse = { type: 'quit' };
