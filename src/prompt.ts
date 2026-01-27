@@ -280,6 +280,7 @@ export interface InterventionMetrics {
   consecutiveFailures: number;
   replanCount: number;
   reobserveCount: number;
+  llmParseFailures: number;
 }
 
 export interface Intervention {
@@ -362,6 +363,7 @@ export function formatInterventionMetrics(metrics: InterventionMetrics): string 
   if (metrics.consecutiveFailures > 0) items.push(`⚠️ ${metrics.consecutiveFailures} consecutive failure(s)`);
   if (metrics.replanCount > 0) items.push(`Replanned ${metrics.replanCount} time(s) this cycle`);
   if (metrics.reobserveCount > 0) items.push(`Re-observed ${metrics.reobserveCount} time(s)`);
+  if (metrics.llmParseFailures > 0) items.push(`⚠️ ${metrics.llmParseFailures} LLM parse failure(s)`);
   return items.length > 0 ? `\n\nSESSION STATE:\n${items.join('\n')}` : '';
 }
 

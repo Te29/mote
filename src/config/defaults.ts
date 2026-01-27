@@ -43,6 +43,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   llmBaseUrl: 'http://localhost:11434/v1',
   llmApiKey: 'ollama',
   llmModel: 'llama3.2',
+  llmTimeout: 60000, // 60 seconds
 
   // ===== Prompt Token Limits =====
   tokenMarkdown: 1500,

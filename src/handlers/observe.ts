@@ -100,6 +100,18 @@ export async function handleObserve(
   // Observe the page
   let pageState = await ctx.services.observe.observe(ctx.runtime.activePage);
 
+  // Auto re-observe: if page is empty (no elements, no content), wait and retry.
+  // Handles SPAs and slow-loading pages not ready at domcontentloaded + postNavDelay.
+  const REOBSERVE_DELAYS = [2000, 3000, 5000];
+  for (let attempt = 0; attempt < REOBSERVE_DELAYS.length; attempt++) {
+    const hasContent = pageState.elements.length > 0 || pageState.markdown.trim().length > 0;
+    if (hasContent) break;
+    if (pageState.captcha?.detected) break; // don't retry on captcha
+    console.log(`⏳ Page appears empty (attempt ${attempt + 1}/${REOBSERVE_DELAYS.length}), waiting ${REOBSERVE_DELAYS[attempt]}ms...`);
+    await ctx.runtime.activePage.waitForTimeout(REOBSERVE_DELAYS[attempt]);
+    pageState = await ctx.services.observe.observe(ctx.runtime.activePage);
+  }
+
   // Update runtime state
   ctx.runtime.lastObservedUrl = pageState.url;
   ctx.runtime.lastPageState = pageState;

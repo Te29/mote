@@ -123,6 +123,7 @@ export interface ResolvedConfig {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  llmTimeout: number; // ms, timeout for LLM API calls
 
   // ===== Prompt Token Limits =====
   tokenMarkdown: number;

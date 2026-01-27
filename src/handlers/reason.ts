@@ -53,13 +53,35 @@ export async function handleReason(
         detail: thinkResult.finalAnswer,
       };
 
-    case 'FAIL':
+    case 'FAIL': {
+      // Parse errors (LLM returned garbage after retries) get an intervention opportunity
+      if (thinkResult.isParseError && shouldIntervene(ctx.engagementMode, 'ERROR')) {
+        const response = await requestIntervention('ERROR', {
+          plan: ctx.tracker,
+          error: thinkResult.error,
+          cycleIndex: state.cycleIndex,
+        });
+        const control = processInterventionControl(response);
+        if (control.action === 'continue' || control.action === 'skip') {
+          // Re-observe and try again
+          return { phase: 'OBSERVE', cycleIndex: state.cycleIndex };
+        }
+        if (control.action === 'succeed') {
+          return {
+            phase: 'TERMINATED',
+            success: true,
+            message: control.message || 'Forced success at LLM error',
+          };
+        }
+        // terminate or other → fall through to CYCLE_END
+      }
       return {
         phase: 'CYCLE_END',
         cycleIndex: state.cycleIndex,
         result: 'FAILURE',
         detail: thinkResult.error,
       };
+    }
 
     case 'REPLAN': {
       const reason = thinkResult.reason;

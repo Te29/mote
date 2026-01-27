@@ -42,7 +42,8 @@ describe('Reason Module', () => {
     const mockMetrics: InterventionMetrics = {
         consecutiveFailures: 0,
         replanCount: 0,
-        reobserveCount: 0
+        reobserveCount: 0,
+        llmParseFailures: 0,
     };
 
     beforeEach(() => {

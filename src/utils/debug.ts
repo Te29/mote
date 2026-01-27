@@ -1,25 +1,59 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
-// Create log directory structure: data/log/
+// Async-safe call depth tracking (per call chain, not global)
+const depthStorage = new AsyncLocalStorage<{ depth: number }>();
+const getDepth = () => depthStorage.getStore()?.depth ?? 0;
+const indent = () => '│  '.repeat(getDepth());
+
+// Configuration for smart serialization
+const SERIALIZE_CONFIG = {
+  maxDepth: 4,
+  maxStringLength: 200,
+  maxArrayItems: 10,
+  maxObjectKeys: 20,
+};
+
+const MAX_LOG_FILES = 10;
 const LOG_DIR = path.join(process.cwd(), 'data', 'log');
-fs.mkdirSync(LOG_DIR, { recursive: true });
 
-// Create unique log file for this session
-const sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-const LOG_FILE = path.join(LOG_DIR, `trace-${sessionTimestamp}.log`);
+// Lazy initialization — no side effects at import time
+let stream: fs.WriteStream | null = null;
 
-// Track call depth for indentation
-let callDepth = 0;
-const indent = () => '│  '.repeat(callDepth);
+function getStream(): fs.WriteStream {
+  if (!stream) {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    cleanupOldLogs();
 
-// Initialize log file with session header
-fs.writeFileSync(LOG_FILE, `${'─'.repeat(60)}\n  SESSION: ${new Date().toISOString()}\n${'─'.repeat(60)}\n`);
+    const sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const logFile = path.join(LOG_DIR, `trace-${sessionTimestamp}.log`);
+    stream = fs.createWriteStream(logFile, { flags: 'a' });
+
+    const header = `${'─'.repeat(60)}\n  SESSION: ${new Date().toISOString()}\n${'─'.repeat(60)}\n`;
+    stream.write(header);
+  }
+  return stream;
+}
+
+function cleanupOldLogs(): void {
+  try {
+    const files = fs.readdirSync(LOG_DIR)
+      .filter(f => f.startsWith('trace-') && f.endsWith('.log'))
+      .sort();
+    const toDelete = files.slice(0, Math.max(0, files.length - MAX_LOG_FILES));
+    for (const file of toDelete) {
+      fs.unlinkSync(path.join(LOG_DIR, file));
+    }
+  } catch {
+    // Ignore cleanup errors
+  }
+}
 
 function logToFile(message: string) {
   try {
-    fs.appendFileSync(LOG_FILE, message + '\n');
-  } catch (e) {
+    getStream().write(message + '\n');
+  } catch {
     // Ignore logging errors to prevent crash
   }
 }
@@ -31,21 +65,15 @@ function logToFile(message: string) {
 export function logPromptToFile(label: string, prompt: string): void {
   const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
   try {
-    fs.appendFileSync(LOG_FILE, `[${timestamp}] ─── ${label} ───\n`);
-    fs.appendFileSync(LOG_FILE, prompt + '\n');
-    fs.appendFileSync(LOG_FILE, `[${timestamp}] ─── END ${label} ───\n`);
-  } catch (e) {
+    getStream().write(
+      `[${timestamp}] ─── ${label} ───\n` +
+      prompt + '\n' +
+      `[${timestamp}] ─── END ${label} ───\n`
+    );
+  } catch {
     // Ignore logging errors to prevent crash
   }
 }
-
-// Configuration for smart serialization
-const SERIALIZE_CONFIG = {
-  maxDepth: 4,
-  maxStringLength: 200,
-  maxArrayItems: 10,
-  maxObjectKeys: 20,
-};
 
 /**
  * Detect and summarize known SDK objects to avoid verbose logging.
@@ -157,10 +185,12 @@ function safeStringify(obj: any): string {
 export function logVariable(label: string, value: any): void {
   const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
   try {
-    fs.appendFileSync(LOG_FILE, `[${timestamp}] ═══ ${label} ═══\n`);
-    fs.appendFileSync(LOG_FILE, safeStringify(value) + '\n');
-    fs.appendFileSync(LOG_FILE, `[${timestamp}] ═══ END ${label} ═══\n`);
-  } catch (e) {
+    getStream().write(
+      `[${timestamp}] ═══ ${label} ═══\n` +
+      safeStringify(value) + '\n' +
+      `[${timestamp}] ═══ END ${label} ═══\n`
+    );
+  } catch {
     // Ignore logging errors to prevent crash
   }
 }
@@ -173,9 +203,10 @@ export function createTraceProxy<T extends object>(target: T, moduleName: string
       // Only intercept functions
       if (typeof originalValue === 'function') {
         return function (this: any, ...args: any[]) {
-          const timestamp = new Date().toISOString().split('T')[1].slice(0, -1); // Remove trailing 'Z'
+          const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
           const funcName = `${moduleName}.${String(prop)}`;
           const startTime = performance.now();
+          const currentDepth = getDepth();
 
           // Console Log (Brief)
           console.log(`[TRACE][${timestamp}] ${indent()}┌─ ${funcName}`);
@@ -186,23 +217,28 @@ export function createTraceProxy<T extends object>(target: T, moduleName: string
             logToFile(`[${timestamp}] ${indent()}│  args: ${safeStringify(args)}`);
           }
 
-          callDepth++;
-
-          // Execute original
-          const result = originalValue.apply(this, args);
-
           // Helper to log return
           const logReturn = (val: any, isAsync: boolean) => {
-            callDepth--;
             const duration = (performance.now() - startTime).toFixed(1);
             const asyncLabel = isAsync ? ' (async)' : '';
+            // Use currentDepth for consistent indentation at exit
+            const exitIndent = '│  '.repeat(currentDepth);
 
-            console.log(`[TRACE][${timestamp}] ${indent()}└─ ${funcName}${asyncLabel} [${duration}ms]`);
-            logToFile(`[${timestamp}] ${indent()}└─ ${funcName}${asyncLabel} [${duration}ms]`);
+            console.log(`[TRACE][${timestamp}] ${exitIndent}└─ ${funcName}${asyncLabel} [${duration}ms]`);
+            logToFile(`[${timestamp}] ${exitIndent}└─ ${funcName}${asyncLabel} [${duration}ms]`);
             if (val !== undefined) {
-              logToFile(`[${timestamp}] ${indent()}   result: ${safeStringify(val)}`);
+              logToFile(`[${timestamp}] ${exitIndent}   result: ${safeStringify(val)}`);
             }
           };
+
+          // Execute in a new async context with incremented depth
+          const runInner = () => {
+            return depthStorage.run({ depth: currentDepth + 1 }, () => {
+              return originalValue.apply(this, args);
+            });
+          };
+
+          const result = runInner();
 
           // Log result (async vs sync)
           if (result instanceof Promise) {
@@ -212,11 +248,11 @@ export function createTraceProxy<T extends object>(target: T, moduleName: string
                 return val;
               })
               .catch((err) => {
-                callDepth--;
                 const duration = (performance.now() - startTime).toFixed(1);
-                console.log(`[TRACE][${timestamp}] ${indent()}└─ ${funcName} ERROR [${duration}ms]`);
-                logToFile(`[${timestamp}] ${indent()}└─ ${funcName} ERROR [${duration}ms]`);
-                logToFile(`[${timestamp}] ${indent()}   error: ${err.stack || err.message}`);
+                const exitIndent = '│  '.repeat(currentDepth);
+                console.log(`[TRACE][${timestamp}] ${exitIndent}└─ ${funcName} ERROR [${duration}ms]`);
+                logToFile(`[${timestamp}] ${exitIndent}└─ ${funcName} ERROR [${duration}ms]`);
+                logToFile(`[${timestamp}] ${exitIndent}   error: ${err.stack || err.message}`);
                 throw err;
               });
           } else {
@@ -230,5 +266,3 @@ export function createTraceProxy<T extends object>(target: T, moduleName: string
     }
   });
 }
-
-

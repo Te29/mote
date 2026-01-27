@@ -116,7 +116,7 @@ function askQuestion(prompt: string): Promise<string> {
 export const ENGAGEMENT_POINTS: Record<EngagementMode, Set<InterventionPoint>> = {
   autonomous: new Set([]),
   minimal: new Set(['TERMINAL']),
-  standard: new Set(['ACTION', 'TERMINAL', 'ERROR']),
+  standard: new Set(['PLAN_PREVIEW', 'ACTION', 'TERMINAL', 'ERROR']),
   supervised: new Set([
     'PLAN_PREVIEW',
     'CYCLE_START',

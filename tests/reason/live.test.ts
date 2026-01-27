@@ -61,6 +61,7 @@ describe('Reason Module - Live LLM Tests', () => {
         consecutiveFailures: 0,
         replanCount: 0,
         reobserveCount: 0,
+        llmParseFailures: 0,
     };
 
     const mockPlan: SessionTracker = {

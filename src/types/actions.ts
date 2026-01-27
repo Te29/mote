@@ -106,6 +106,7 @@ export interface ThinkResultGoalSuccess {
 export interface ThinkResultFail {
   type: 'FAIL';
   error: string;
+  isParseError?: boolean; // true when failure is due to LLM response parsing, not intentional
 }
 
 // -----------------------------------------------------------------------------

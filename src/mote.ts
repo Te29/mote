@@ -231,3 +231,22 @@ export async function runAgent(
 // RE-EXPORT extractPathFromHistory
 // -----------------------------------------------------------------------------
 export { extractPathFromHistory } from './runtime/result.js';
+
+// -----------------------------------------------------------------------------
+// CLI EXECUTION
+// -----------------------------------------------------------------------------
+
+/**
+ * Check if the current file is the main entry point.
+ * Equivalent to `if (require.main === module)` in CommonJS.
+ */
+import { fileURLToPath } from 'url';
+import { pathToFileURL } from 'url';
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runAgent().then((result) => {
+    if (!result.success) {
+      process.exit(1);
+    }
+  });
+}

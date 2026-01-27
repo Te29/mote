@@ -188,6 +188,10 @@ function loadEnvConfig(): ConfigInput {
   if (process.env.LLM_MODEL) {
     config.llmModel = process.env.LLM_MODEL;
   }
+  if (process.env.LLM_TIMEOUT) {
+    const parsed = parseInt(process.env.LLM_TIMEOUT, 10);
+    if (!isNaN(parsed)) config.llmTimeout = parsed;
+  }
 
   // Prompt token limits
   if (process.env.LLM_PROMPT_MARKDOWN_TOKENS) {

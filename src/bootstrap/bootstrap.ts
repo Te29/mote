@@ -88,6 +88,7 @@ export async function bootstrap(
     llmBaseUrl: config.llmBaseUrl,
     llmApiKey: config.llmApiKey,
     llmModel: config.llmModel,
+    llmTimeout: config.llmTimeout,
   });
 
   // ---------------------------------------------------------------------------
@@ -165,6 +166,7 @@ export async function bootstrap(
     consecutiveFailures: 0,
     replanCount: 0,
     reobserveCount: 0,
+    llmParseFailures: 0,
   };
 
   // ---------------------------------------------------------------------------

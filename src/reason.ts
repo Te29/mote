@@ -112,17 +112,19 @@ export interface ValidationResult {
 // -----------------------------------------------------------------------------
 
 export function createLLMClient(
-  llmConfig?: Pick<ResolvedConfig, 'llmBaseUrl' | 'llmApiKey' | 'llmModel'>,
+  llmConfig?: Pick<ResolvedConfig, 'llmBaseUrl' | 'llmApiKey' | 'llmModel' | 'llmTimeout'>,
 ): OpenAI {
   const baseURL =
     llmConfig?.llmBaseUrl ||
     process.env.LLM_BASE_URL ||
     'http://localhost:11434/v1';
   const apiKey = llmConfig?.llmApiKey || process.env.LLM_API_KEY || 'ollama';
+  const timeout = llmConfig?.llmTimeout || 60000;
 
   return new OpenAI({
     baseURL,
     apiKey,
+    timeout,
   });
 }
 
@@ -217,82 +219,109 @@ export async function think(
   logPromptToFile('SITUATION PROMPT', situationPrompt);
   logPromptToFile('TOKEN STATS', `Total: ${tokenStats.totalTokens} (System: ${tokenStats.systemTokens}, Situation: ${tokenStats.situationTokens})`);
 
-  try {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: situationPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-      max_tokens: 500,
-    });
+  const MAX_LLM_RETRIES = 3;
+  let lastError: unknown = null;
 
-    const content = response.choices[0]?.message?.content || '{}';
-    
-    if (verbose) {
-      console.log(`   Raw response: ${content.substring(0, 200)}...`);
-    }
+  for (let attempt = 1; attempt <= MAX_LLM_RETRIES; attempt++) {
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: situationPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+        max_tokens: 500,
+      });
 
-    // -------------------------------------------------------------------------
-    // ZOD PARSING & VALIDATION
-    // -------------------------------------------------------------------------
-    const parsed = ThinkResultSchema.parse(JSON.parse(content));
+      const content = response.choices[0]?.message?.content || '{}';
 
-    // Map Zod result back to internal ThinkResult (removes "thinking" field if needed or keeps it)
-    // The Zod output is structuraly compatible with ThinkResult, but let's be explicit
-    
-    if (parsed.resultType === 'ACTION') {
-        return {
-            type: 'ACTION',
-            action: parsed.action
-        };
-    }
-    
-    if (parsed.resultType === 'GOAL_SUCCESS') {
-        return { type: 'GOAL_SUCCESS', finalAnswer: parsed.finalAnswer };
-    }
-    
-    if (parsed.resultType === 'FAIL') {
-        return { type: 'FAIL', error: parsed.error };
-    }
+      // Log the raw response for debugging invalid JSON
+      logPromptToFile('LLM RESPONSE', content);
 
-    if (parsed.resultType === 'REPLAN') {
-        return { type: 'REPLAN', reason: parsed.reason };
-    }
+      if (verbose) {
+        console.log(`   Raw response: ${content.substring(0, 200)}...`);
+      }
 
-    if (parsed.resultType === 'RETRY_PERCEPTION') {
-        return { type: 'RETRY_PERCEPTION' };
-    }
-    
-    throw new Error('Unreachable: Invalid Zod Parse Result');
+      // -----------------------------------------------------------------------
+      // ZOD PARSING & VALIDATION
+      // -----------------------------------------------------------------------
+      const parsed = ThinkResultSchema.parse(JSON.parse(content));
 
-  } catch (error) {
-    if (verbose) {
-        try {
-            console.error('❌ RAW Error Object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-        } catch {
-            console.error('❌ RAW Error Object (Stringified):', String(error));
-        }
-    } else {
-        console.error('❌ LLM/Reasoning Error:', error instanceof Error ? error.message : String(error));
-    }
-    
-    if (error instanceof z.ZodError) {
-        return {
-            type: 'FAIL',
-            error: `Invalid JSON format from LLM: ${error.message}`
-        };
-    }
+      // Map Zod result back to internal ThinkResult
+      if (parsed.resultType === 'ACTION') {
+          return {
+              type: 'ACTION',
+              action: parsed.action
+          };
+      }
 
-    return {
-      type: 'FAIL',
-      error: `LLM API error: ${
-        error instanceof Error ? error.message : 'Unknown error'
-      }`,
-    };
+      if (parsed.resultType === 'GOAL_SUCCESS') {
+          return { type: 'GOAL_SUCCESS', finalAnswer: parsed.finalAnswer };
+      }
+
+      if (parsed.resultType === 'FAIL') {
+          return { type: 'FAIL', error: parsed.error };
+      }
+
+      if (parsed.resultType === 'REPLAN') {
+          return { type: 'REPLAN', reason: parsed.reason };
+      }
+
+      if (parsed.resultType === 'RETRY_PERCEPTION') {
+          return { type: 'RETRY_PERCEPTION' };
+      }
+
+      throw new Error('Unreachable: Invalid Zod Parse Result');
+
+    } catch (error) {
+      lastError = error;
+      interventionMetrics.llmParseFailures++;
+
+      if (attempt < MAX_LLM_RETRIES) {
+        const errorMsg = error instanceof z.ZodError
+          ? `Invalid JSON format from LLM`
+          : (error instanceof Error ? error.message : String(error));
+        console.warn(`⚠️ LLM attempt ${attempt}/${MAX_LLM_RETRIES} failed (${errorMsg}), retrying...`);
+        continue;
+      }
+
+      // Final attempt exhausted — log and return FAIL with parse error flag
+      if (verbose) {
+          try {
+              console.error('❌ RAW Error Object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+          } catch {
+              console.error('❌ RAW Error Object (Stringified):', String(error));
+          }
+      } else {
+          console.error('❌ LLM/Reasoning Error:', error instanceof Error ? error.message : String(error));
+      }
+
+      if (error instanceof z.ZodError) {
+          return {
+              type: 'FAIL',
+              error: `Invalid JSON format from LLM after ${MAX_LLM_RETRIES} attempts: ${error.message}`,
+              isParseError: true,
+          };
+      }
+
+      return {
+        type: 'FAIL',
+        error: `LLM API error after ${MAX_LLM_RETRIES} attempts: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        isParseError: true,
+      };
+    }
   }
+
+  // Unreachable, but satisfies TypeScript
+  return {
+    type: 'FAIL',
+    error: `LLM failed after ${MAX_LLM_RETRIES} attempts: ${String(lastError)}`,
+    isParseError: true,
+  };
 }
 
 // -----------------------------------------------------------------------------
