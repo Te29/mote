@@ -8,17 +8,20 @@
     "start": "tsx src/mote.ts",
     "dev": "tsx watch src/mote.ts",
     "test": "vitest --exclude **/live.test.ts",
-    "test:live": "vitest run tests/observe/live.test.ts",
+    "test:live": "vitest run --exclude **/mock.test.ts",
     "test:browser": "vitest run tests/browser/mock.test.ts",
     "test:browser:live": "vitest run tests/browser/live.test.ts",
     "test:observe": "vitest run tests/observe/mock.test.ts",
     "test:observe:live": "vitest run tests/observe/live.test.ts",
-    "test:execution": "vitest run tests/execution_mode.test.ts",
     "test:reason": "vitest run tests/reason/mock.test.ts",
     "test:reason:live": "vitest run tests/reason/live.test.ts",
     "test:act": "vitest run tests/act/mock.test.ts",
     "test:act:live": "vitest run tests/act/live.test.ts",
-    "test:mote": "tsx src/mote.ts"
+    "test:mote": "vitest run tests/mote/mock.test.ts",
+    "test:mote:live": "vitest run tests/mote/live.test.ts",
+    "test:integration": "vitest run tests/integration/",
+    "demo": "tsx demos/quiz.ts",
+    "demo:quiz": "tsx demos/quiz.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -36,6 +39,6 @@
     "@types/turndown": "^5.0.5",
     "tsx": "^4.16.0",
     "typescript": "^5.5.2",
-    "vitest": "^4.0.17"
+    "vitest": "^3.2.4"
   }
 }
