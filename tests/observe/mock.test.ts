@@ -22,12 +22,11 @@ describe('Observe Module', () => {
     browserSession = await launchBrowser({
       headless: true, // Keep it headless for speed
       slowMo: 0,
-      timeout: {
-        default: 10000,
-        navigation: 10000,
-        element: 2000,
-        postNavDelay: 500, // Slightly longer wait for iframes to load
-      },
+      stealth: true,
+      timeoutDefault: 10000,
+      timeoutNavigation: 10000,
+      timeoutElement: 2000,
+      postNavDelay: 500, // Slightly longer wait for iframes to load
     });
   });
 
@@ -95,12 +94,16 @@ describe('Observe Module', () => {
 
     it('should filter out hidden elements', () => {
         const els = complexState.elements;
-        const hiddenTexts = ['Display None', 'Invisible', 'Off Screen', 'Zero Size'];
+        const hiddenTexts = ['Display None', 'Invisible', 'Zero Size'];
         
         hiddenTexts.forEach(text => {
             const found = els.find(e => e.text === text);
             expect(found, `Element "${text}" should be invisible`).toBeUndefined();
         });
+
+        // Off Screen elements should now be detected (for scrolling purposes)
+        const offScreen = els.find(e => e.text === 'Off Screen');
+        expect(offScreen).toBeDefined();
 
         const visible = els.find(e => e.text === 'Visible');
         expect(visible).toBeDefined();

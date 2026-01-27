@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { launchBrowser, navigateTo, closeBrowser } from '../../src/browser.js';
 import { observe } from '../../src/observe.js';
 import { executeAction, pressKey } from '../../src/act.js';
-import type { Action } from '../../src/types.js';
+import type { Action } from '../../src/types/index.js';
 import type { Page } from 'playwright';
 
 // These tests require a browser and internet access.
@@ -15,12 +15,10 @@ describe('Act Module - Live Browser Tests', () => {
       headless: true,
       slowMo: 100,
       stealth: true,
-      timeout: {
-        default: 10000,
-        navigation: 10000,
-        element: 5000,
-        postNavDelay: 500,
-      },
+      timeoutDefault: 10000,
+      timeoutNavigation: 10000,
+      timeoutElement: 5000,
+      postNavDelay: 500,
     });
   });
 

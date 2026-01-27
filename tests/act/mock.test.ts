@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Page, Locator, BrowserContext, ElementHandle, Download } from 'playwright';
-import type { ElementInfo, Action } from '../../src/types.js';
+import type { ElementInfo, Action } from '../../src/types/index.js';
 
 // Mock the act module functions
 const mockPage = {

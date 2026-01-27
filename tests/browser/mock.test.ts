@@ -40,12 +40,11 @@ describe('Browser Module', () => {
     const config = {
         headless: true,
         slowMo: 0,
-        timeout: {
-            default: 1000,
-            navigation: 1000,
-            element: 1000,
-            postNavDelay: 0,
-        }
+        stealth: true,
+        timeoutDefault: 1000,
+        timeoutNavigation: 1000,
+        timeoutElement: 1000,
+        postNavDelay: 0
     };
 
     beforeEach(() => {
@@ -53,7 +52,7 @@ describe('Browser Module', () => {
     });
 
     it('should launch a browser and return session', async () => {
-        const session = await launchBrowser(config);
+        const session = await launchBrowser(config as any);
         
         expect(chromium.launch).toHaveBeenCalledWith(expect.objectContaining({
             headless: true,

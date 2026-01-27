@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { launchBrowser, closeBrowser, navigateTo } from '../../src/browser.js';
 import { observe } from '../../src/observe.js';
-import type { PageState } from '../../src/types.js';
+import type { PageState } from '../../src/types/index.js';
 import type { Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -57,12 +57,11 @@ describe('Live Website Functional Tests', () => {
     browserSession = await launchBrowser({
       headless: true,
       slowMo: 100, // Small delay for stability
-      timeout: {
-        default: 30000,
-        navigation: 30000,
-        element: 5000,
+      stealth: true,
+        timeoutDefault: 30000,
+        timeoutNavigation: 30000,
+        timeoutElement: 5000,
         postNavDelay: 2000, // Wait for hydration/rendering
-      },
     });
   });
 

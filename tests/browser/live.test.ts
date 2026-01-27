@@ -30,7 +30,10 @@ describe('Browser Module - Live Tests', () => {
       headless: true,
       slowMo: 0,
       stealth: true, // Enable stealth
-      timeout: { default: 10000, navigation: 10000, element: 5000, postNavDelay: 500 }
+      timeoutDefault: 10000,
+      timeoutNavigation: 10000,
+      timeoutElement: 5000,
+      postNavDelay: 500
     });
 
     // Navigate to a simple page

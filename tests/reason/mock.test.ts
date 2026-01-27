@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Goal, PageState, SessionPlan, Action } from '../../src/types.js';
-import type { ExecutionMetrics } from '../../src/prompt.js';
+import type { Goal, PageState, SessionTracker, Action } from '../../src/types/index.js';
+import type { InterventionMetrics } from '../../src/prompt.js';
 import OpenAI from 'openai';
 import {
     createLLMClient,
@@ -31,7 +31,7 @@ describe('Reason Module', () => {
         ]
     };
 
-    const mockPlan: SessionPlan = {
+    const mockPlan: SessionTracker = {
         goalSummary: 'Test goal summary',
         cycleDescription: 'Test cycle',
         cycles: [{ isCompleted: false, cycleSteps: [] }],
@@ -39,7 +39,7 @@ describe('Reason Module', () => {
         lastUpdatedAt: new Date().toISOString()
     };
 
-    const mockMetrics: ExecutionMetrics = {
+    const mockMetrics: InterventionMetrics = {
         consecutiveFailures: 0,
         replanCount: 0,
         reobserveCount: 0
@@ -141,12 +141,12 @@ describe('Reason Module', () => {
     });
 
     describe('evaluateDrift()', () => {
-        it('should return approved for identical states', async () => {
+        it('should return can_proceed for identical states', async () => {
             mockCreate.mockResolvedValueOnce({
                 choices: [{
                     message: {
                         content: JSON.stringify({
-                            status: 'approved',
+                            decision: 'can_proceed',
                             reason: 'States are identical'
                         })
                     }
@@ -156,17 +156,22 @@ describe('Reason Module', () => {
             const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
-            expect(result.status).toBe('approved');
+            expect(result.decision).toBe('can_proceed');
+            expect(result.reason).toBe('States are identical');
         });
 
-        it('should return update_required with correction', async () => {
+        it('should return can_proceed with adapted action', async () => {
             mockCreate.mockResolvedValueOnce({
                 choices: [{
                     message: {
                         content: JSON.stringify({
-                            status: 'update_required',
+                            decision: 'can_proceed',
                             reason: 'Button moved',
-                            correction: { selector: '#btn2' }
+                            adaptedAction: {
+                                type: 'click',
+                                selector: '#btn2',
+                                reason: 'Adapted to new button location'
+                            }
                         })
                     }
                 }]
@@ -175,11 +180,12 @@ describe('Reason Module', () => {
             const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
-            expect(result.status).toBe('update_required');
-            expect(result.correction?.selector).toBe('#btn2');
+            expect(result.decision).toBe('can_proceed');
+            expect(result.reason).toBe('Button moved');
+            expect(result.adaptedAction?.selector).toBe('#btn2');
         });
 
-        it('should return fallback on parse error', async () => {
+        it('should return cannot_complete on parse error', async () => {
             mockCreate.mockResolvedValueOnce({
                 choices: [{
                     message: {
@@ -191,7 +197,7 @@ describe('Reason Module', () => {
             const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
-            expect(result.status).toBe('fallback');
+            expect(result.decision).toBe('cannot_complete');
         });
     });
 
