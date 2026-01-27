@@ -48,5 +48,5 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   tokenMarkdown: 1500,
   tokenElements: 2000,
   tokenMaxElements: 50,
-  tokenHistory: 200,
+  tokenHistory: 1000,
 };

@@ -1,16 +1,16 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as mote from '../../src/mote';
-import * as browser from '../../src/browser';
-import * as observe from '../../src/observe';
-import * as reason from '../../src/reason';
-import * as interaction from '../../src/interaction';
+import * as mote from '../../src/mote.js';
+import * as browser from '../../src/browser.js';
+import * as observe from '../../src/observe.js';
+import * as reason from '../../src/reason.js';
+import * as interaction from '../../src/interaction.js';
 import {
   type ConfigInput,
   type SessionTracker,
   type PageState,
   createTimestamp,
-} from '../../src/types';
+} from '../../src/types/index.js';
 
 // Mock ONLY the reasoning/LLM part
 vi.mock('../../src/reason');

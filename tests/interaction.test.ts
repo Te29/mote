@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from 'vitest';
-import { processInterventionControl, InterventionControl } from '../src/interaction';
+import { processInterventionControl, InterventionControl } from '../src/interaction.js';
 import { InterventionResponse } from '../src/types/index.js';
 
 describe('Interaction Logic', () => {

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as mote from '../../src/mote';
-import * as interaction from '../../src/interaction';
-import * as browser from '../../src/browser';
-import * as observe from '../../src/observe';
-import * as reason from '../../src/reason';
-import * as handlers from '../../src/handlers/index';
+import * as mote from '../../src/mote.js';
+import * as interaction from '../../src/interaction.js';
+import * as browser from '../../src/browser.js';
+import * as observe from '../../src/observe.js';
+import * as reason from '../../src/reason.js';
+import * as handlers from '../../src/handlers/index.js';
 import {
   type ConfigInput,
   type SessionTracker,
@@ -19,7 +19,7 @@ import {
   type AgentStateAct,
   type AgentStateCycleEnd,
   createTimestamp,
-} from '../../src/types';
+} from '../../src/types/index.js';
 
 // Mock all external dependencies
 vi.mock('../../src/interaction');
