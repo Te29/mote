@@ -455,7 +455,7 @@ export async function promptForPresetSave(
   console.log('\n' + '✨'.repeat(30));
   console.log('🧠 SELF-HEALING: Learned a successful path!');
   console.log('✨'.repeat(30));
-  console.log(`The agent found a path with ${learnedStepsCount} steps in Explore Mode.`);
+  console.log(`The agent found a path with ${learnedStepsCount} steps in this session.`);
   
   if (existingPreset) {
     console.log(`Current preset: "${existingPreset.name}"`);

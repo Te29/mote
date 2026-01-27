@@ -60,7 +60,7 @@ export async function handleObserve(
     
     else if (control.action === 'modify') {
       console.log(`✎ User instruction: "${control.instruction}"`);
-      ctx.runtime.forceExploreMode = true;
+      ctx.runtime.pendingUserInstruction = control.instruction;
     }
 
     else if (control.action === 'terminate') {
@@ -89,16 +89,24 @@ export async function handleObserve(
   // Progress update
   console.log(`Progress: ${getProgress(ctx.tracker)}`);
 
-  // Force Explore Mode handling
-  // If user requested modification during interrupt or prev step required it
-  if (ctx.runtime.forceExploreMode) {
-     console.log('⚠️ Forced Explore Mode active for this cycle');
-     // No API for forceExploreMode in service yet, but we can assume it will affect REASON phase.
-     // Actually, let's keep it simple: we just observe normally.
+  // Determine observation strategy (Targeted vs Full)
+  let targetSelectors: string[] | undefined;
+  
+  // If we are following an execution path, look for the specific target
+  if (
+    ctx.executionPath && 
+    ctx.runtime.currentExecutionStepIndex < ctx.executionPath.length
+  ) {
+    const currentStep = ctx.executionPath[ctx.runtime.currentExecutionStepIndex];
+    // Only use target selector if it exists
+    if (currentStep && currentStep.targetElementSelector) {
+      targetSelectors = [currentStep.targetElementSelector];
+      console.log(`🎯 Targeted Observation: Looking for "${currentStep.targetElementSelector}"`);
+    }
   }
 
-  // Observe the page
-  let pageState = await ctx.services.observe.observe(ctx.runtime.activePage);
+  // Observe the page (Targeted or Full)
+  let pageState = await ctx.services.observe.observe(ctx.runtime.activePage, targetSelectors);
 
   // Auto re-observe: if page is empty (no elements, no content), wait and retry.
   // Handles SPAs and slow-loading pages not ready at domcontentloaded + postNavDelay.
@@ -115,6 +123,12 @@ export async function handleObserve(
   // Update runtime state
   ctx.runtime.lastObservedUrl = pageState.url;
   ctx.runtime.lastPageState = pageState;
+
+  // Retroactively set pageStateAfter on the previous step's history entry.
+  // This captures the post-action state without an extra observation call.
+  if (ctx.history.length > 0) {
+    ctx.history[ctx.history.length - 1].pageStateAfter = pageState;
+  }
   
   // Log observation summary
   logVariable('PAGE STATE', {

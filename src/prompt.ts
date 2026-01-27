@@ -12,7 +12,7 @@
 // - Compressed prompts for repeat cycles (saves ~300-400 tokens)
 // - Stage-Aware Prompts:
 //   - Execution Prompt: For the main ACTION loop
-//   - Drift Analysis Prompt: For verifying Execute Mode state
+//   - Drift Analysis Prompt: For verifying execution path state
 //   - Planning Prompt: For generating initial plans
 //
 // Exported Functions:

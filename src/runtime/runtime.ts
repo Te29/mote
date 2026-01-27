@@ -212,7 +212,7 @@ export async function executeRuntime(
         lastObservedUrl,
         lastPageState,
         hadAdaptations,
-        forceExploreMode: false,
+        currentExecutionStepIndex: 0,
       },
     };
 

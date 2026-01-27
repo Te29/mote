@@ -46,7 +46,7 @@ export interface AgentSettings {
 
   /**
    * Loaded execution path from preset (if exists).
-   * Used to guide Execute Mode.
+   * Used to guide execution.
    * Can be updated during adaptive execution.
    */
   executionPath?: import('./actions.js').ExecutionStep[];
@@ -148,13 +148,22 @@ export interface AgentRuntimeState {
   hadAdaptations: boolean;
 
   /**
-   * Force the agent to run in Explore mode (ignore cached execution path).
-   * Set to true when drift is detected or user requests modification.
+   * Current index in the execution path (if executionPath exists).
+   * Used to track progress through the cached path.
    * MUTATIONS:
-   * - observe.ts: Sets to true on drift fallback or user intervention
-   * - utils/context-mutations.ts: forceExploreMode() function
+   * - act.ts: Increments after successful action (if following path)
+   * - reason.ts: Resets/Adjusts during drift handling? (Actually, usually just increments)
    */
-  forceExploreMode?: boolean;
+  currentExecutionStepIndex: number;
+
+  /**
+   * Pending instruction from user intervention.
+   * If set, REASON handler will prioritize this over cached execution path (treating it as an adaptation).
+   * MUTATIONS:
+   * - observe.ts: Sets when user interrupts with 'modify'
+   * - reason.ts: Consumes (clears) after acting on it
+   */
+  pendingUserInstruction?: string;
 }
 
 // =============================================================================

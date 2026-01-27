@@ -6,7 +6,7 @@
 //
 // Features:
 // - Zod validation for all LLM outputs (Type Safety)
-// - Drift Analysis for Execute Mode (evaluateDrift)
+// - Drift Analysis for execution paths (evaluateDrift)
 // - Separation of Planning and Execution prompt construction
 // - Robust error handling
 //

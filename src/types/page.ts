@@ -58,8 +58,11 @@ export interface ElementInfo {
   /** Visible text or placeholder */
   text: string;
 
-  /** CSS selector to find this element */
+  /** Primary CSS selector to find this element */
   selector: string;
+
+  /** Alternative CSS selectors (lower-priority but valid) for resilient matching */
+  alternativeSelectors?: string[];
 
   /** Input type for form elements (text, password, email, etc.) */
   inputType?: string;

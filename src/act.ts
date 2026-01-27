@@ -179,6 +179,221 @@ async function verifyElement(
 }
 
 // -----------------------------------------------------------------------------
+// VERIFY-OR-RESOLVE: Combined verification + resilient resolution
+// -----------------------------------------------------------------------------
+
+/**
+ * Verify an element exists, falling back to resilient resolution if needed.
+ * Returns an updated element with a working selector, or an error.
+ *
+ * Flow:
+ * 1. verifyElement() — fast check that primary selector still works
+ * 2. resolveElement() — tries alternatives then fuzzy matching
+ * 3. Returns updated element with resolved selector, or error
+ */
+async function verifyOrResolve(
+  page: Page,
+  element: ElementInfo,
+): Promise<{ valid: true; element: ElementInfo } | { valid: false; error: string }> {
+  // Fast path: primary selector still valid
+  const verification = await verifyElement(page, element);
+  if (verification.valid) {
+    return { valid: true, element };
+  }
+
+  // Slow path: try alternative selectors and fuzzy matching
+  console.log(`   ⚠️ Primary verification failed: ${verification.error}`);
+  const resolution = await resolveElement(page, element);
+
+  if (resolution.found && resolution.resolvedSelector) {
+    // Update element's selector to the one that worked
+    const resolved: ElementInfo = {
+      ...element,
+      selector: resolution.resolvedSelector,
+    };
+    // Re-verify with the resolved selector (tag + text check)
+    const recheck = await verifyElement(page, resolved);
+    if (recheck.valid) {
+      return { valid: true, element: resolved };
+    }
+    // Resolved something but it didn't pass tag/text verification
+    return {
+      valid: false,
+      error: `Resolved via ${resolution.method} but verification failed: ${recheck.error}`,
+    };
+  }
+
+  return {
+    valid: false,
+    error: resolution.error || verification.error || 'Element not found',
+  };
+}
+
+// -----------------------------------------------------------------------------
+// ELEMENT RESOLUTION (Fuzzy Matching Layer)
+// -----------------------------------------------------------------------------
+
+/**
+ * Result of resolving an element on the page.
+ * When the primary selector fails, this tries alternative selectors and
+ * attribute-based fuzzy matching before giving up.
+ */
+interface ResolveResult {
+  found: boolean;
+  /** The selector that successfully matched (may differ from element.selector) */
+  resolvedSelector?: string;
+  /** How the element was found */
+  method?: 'primary' | 'alternative' | 'fuzzy';
+  error?: string;
+}
+
+/**
+ * Try to locate an element on the page using a multi-strategy approach:
+ *
+ * 1. Primary selector   — exact match (fast path)
+ * 2. Alternative selectors — other valid selectors from the fingerprint
+ * 3. Fuzzy attribute match — find the best-matching element on the page by
+ *    comparing tag, text, and attributes against all current page elements
+ *
+ * This layer sits between the cheap verify step and the expensive LLM drift
+ * analysis, handling common cases like minor attribute renames without an
+ * API call.
+ */
+async function resolveElement(
+  page: Page,
+  element: ElementInfo,
+): Promise<ResolveResult> {
+  // Strategy 1: Primary selector
+  const primary = await page.$(element.selector);
+  if (primary) {
+    return { found: true, resolvedSelector: element.selector, method: 'primary' };
+  }
+
+  // Strategy 2: Try alternative selectors
+  if (element.alternativeSelectors && element.alternativeSelectors.length > 0) {
+    for (const alt of element.alternativeSelectors) {
+      const handle = await page.$(alt);
+      if (handle) {
+        // Verify the tag matches to avoid false positives
+        const tag = await handle.evaluate((el) => el.tagName.toLowerCase());
+        if (tag === element.tag) {
+          console.log(`   🔄 Primary selector failed, matched via alternative: ${alt}`);
+          return { found: true, resolvedSelector: alt, method: 'alternative' };
+        }
+      }
+    }
+  }
+
+  // Strategy 3: Fuzzy attribute-based matching against current page elements
+  // Build candidate selectors from the element's attributes and try to find
+  // an element that shares multiple attributes with our target.
+  const fuzzyResult = await fuzzyMatchElement(page, element);
+  if (fuzzyResult) {
+    console.log(`   🔍 Primary & alternatives failed, fuzzy-matched via attributes (score: ${fuzzyResult.score})`);
+    return { found: true, resolvedSelector: fuzzyResult.selector, method: 'fuzzy' };
+  }
+
+  return {
+    found: false,
+    error: `Element not found via primary, ${element.alternativeSelectors?.length || 0} alternatives, or fuzzy matching`,
+  };
+}
+
+/**
+ * Fuzzy-match an element against all current page elements by comparing
+ * tag name, text content, and key attributes.
+ *
+ * Returns the selector of the best match if the score exceeds a minimum
+ * confidence threshold, or null if no good match exists.
+ */
+async function fuzzyMatchElement(
+  page: Page,
+  target: ElementInfo,
+): Promise<{ selector: string; score: number } | null> {
+  // Collect candidate elements of the same tag from the live page
+  const candidates = await page.evaluate((tag: string) => {
+    const els = document.querySelectorAll(tag);
+    const results: Array<{
+      text: string;
+      attributes: Record<string, string>;
+      index: number;
+    }> = [];
+    const attrNames = [
+      'href', 'name', 'id', 'class', 'type',
+      'aria-label', 'placeholder', 'value', 'role',
+      'data-testid', 'data-test-id', 'data-test',
+    ];
+    els.forEach((el, i) => {
+      const attrs: Record<string, string> = {};
+      for (const attr of attrNames) {
+        const val = el.getAttribute(attr);
+        if (val) attrs[attr] = val.length > 100 ? val.substring(0, 97) + '...' : val;
+      }
+      results.push({
+        text: ((el as HTMLElement).innerText || '').trim().substring(0, 100),
+        attributes: attrs,
+        index: i,
+      });
+    });
+    return results;
+  }, target.tag);
+
+  if (candidates.length === 0) return null;
+
+  const targetTextLower = target.text.trim().toLowerCase();
+  let bestScore = 0;
+  let bestIndex = -1;
+
+  for (const candidate of candidates) {
+    let score = 0;
+
+    // Text similarity (highest weight)
+    const candidateTextLower = candidate.text.toLowerCase();
+    if (targetTextLower && candidateTextLower) {
+      if (targetTextLower === candidateTextLower) {
+        score += 4;
+      } else if (
+        targetTextLower.includes(candidateTextLower) ||
+        candidateTextLower.includes(targetTextLower)
+      ) {
+        score += 3;
+      }
+    }
+
+    // Attribute exact matches (medium weight)
+    for (const [key, val] of Object.entries(target.attributes)) {
+      // Skip 'class' for exact matching (too volatile) and 'checked' (state)
+      if (key === 'class' || key === 'checked') continue;
+      if (candidate.attributes[key] === val) {
+        score += 2;
+      } else if (candidate.attributes[key] && (
+        candidate.attributes[key].includes(val) || val.includes(candidate.attributes[key])
+      )) {
+        score += 1;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = candidate.index;
+    }
+  }
+
+  // Minimum confidence threshold: need at least text match OR 2 attribute matches
+  const MIN_SCORE = 3;
+  if (bestScore < MIN_SCORE || bestIndex < 0) return null;
+
+  // Build a nth-of-type selector to target the specific element
+  const selector = `${target.tag}:nth-of-type(${bestIndex + 1})`;
+
+  // Verify it actually resolves to something
+  const verify = await page.$(selector);
+  if (!verify) return null;
+
+  return { selector, score: bestScore };
+}
+
+// -----------------------------------------------------------------------------
 // MAIN EXECUTE FUNCTION
 // -----------------------------------------------------------------------------
 
@@ -291,18 +506,20 @@ async function executeClick(
 
   // Verify element identity before clicking (prevents clicking wrong element if DOM shifted)
   // Skip verification for iframe elements (verification doesn't support frames yet)
+  let resolvedElement = element;
   if (!isInIframe) {
-    const verification = await verifyElement(page, element);
-    if (!verification.valid) {
+    const result = await verifyOrResolve(page, element);
+    if (!result.valid) {
       return {
         success: false,
-        error: `Element verification failed: ${verification.error}. Page may have changed - re-observe recommended.`,
+        error: `Element verification failed: ${result.error}. Page may have changed - re-observe recommended.`,
       };
     }
+    resolvedElement = result.element;
   }
 
   // Get the locator (handles iframe context automatically)
-  const locator = getElementLocator(page, element);
+  const locator = getElementLocator(page, resolvedElement);
 
   try {
     // Human-like click sequence:
@@ -545,18 +762,20 @@ async function executeType(
 
   // Verify element identity before typing (prevents typing into wrong field if DOM shifted)
   // Skip verification for iframe elements (verification doesn't support frames yet)
+  let resolvedElement = element;
   if (!isInIframe) {
-    const verification = await verifyElement(page, element);
-    if (!verification.valid) {
+    const result = await verifyOrResolve(page, element);
+    if (!result.valid) {
       return {
         success: false,
-        error: `Element verification failed: ${verification.error}. Page may have changed - re-observe recommended.`,
+        error: `Element verification failed: ${result.error}. Page may have changed - re-observe recommended.`,
       };
     }
+    resolvedElement = result.element;
   }
 
   // Get the locator (handles iframe context automatically)
-  const locator = getElementLocator(page, element);
+  const locator = getElementLocator(page, resolvedElement);
 
   try {
     // Human-like typing sequence:
@@ -772,21 +991,23 @@ async function executeHover(
   }
 
   // Verify element identity before hovering (prevents hovering wrong element if DOM shifted)
-  const verification = await verifyElement(page, element);
-  if (!verification.valid) {
+  let resolvedElement = element;
+  const result = await verifyOrResolve(page, element);
+  if (!result.valid) {
     return {
       success: false,
-      error: `Element verification failed: ${verification.error}. Page may have changed - re-observe recommended.`,
+      error: `Element verification failed: ${result.error}. Page may have changed - re-observe recommended.`,
     };
   }
+  resolvedElement = result.element;
 
   try {
     // Human-like hover sequence:
     // 1. Move mouse naturally to element
     // 2. Pause to let dropdown/tooltip appear
 
-    await humanMouseMove(page, element.selector);
-    await page.hover(element.selector);
+    await humanMouseMove(page, resolvedElement.selector);
+    await page.hover(resolvedElement.selector);
 
     // Wait for any hover-triggered content to appear
     await humanDelay(page, 300, 600);

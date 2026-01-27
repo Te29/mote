@@ -70,30 +70,6 @@ export interface AgentResult {
 }
 
 // -----------------------------------------------------------------------------
-// DRIFT EVALUATION (Execute Mode Adaptive Execution)
-// -----------------------------------------------------------------------------
-
-/**
- * Result of evaluating drift between expected and current page state.
- * Used in Execute Mode to determine if cached step can proceed.
- */
-export type DriftEvaluationDecision = 'exact_match' | 'can_proceed' | 'cannot_complete';
-
-export interface DriftEvaluationResult {
-  /** The drift decision */
-  decision: DriftEvaluationDecision;
-
-  /** Explanation of the decision */
-  reason: string;
-
-  /** Adapted execution step (only if decision = 'can_proceed') */
-  adaptedStep?: import('./actions.js').ExecutionStep;
-
-  /** Whether the ExecutionStep was modified during adaptation */
-  wasAdapted: boolean;
-}
-
-// -----------------------------------------------------------------------------
 // UTILITY TYPES
 // -----------------------------------------------------------------------------
 

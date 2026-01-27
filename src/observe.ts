@@ -141,18 +141,21 @@ export async function observe(
   const elements = await extractInteractiveElements(page, targetSelectors);
 
   let markdown = '';
-  // Optimization: If in Execute Mode (targetSelectors provided) and we found them,
+  // Optimization: If targeted observation (targetSelectors provided) and we found them,
   // we can skip the expensive markdown generation.
-  // We check if we found ALL target selectors (or at least the first one which is usually the action target)
-  const targetsFound = targetSelectors && targetSelectors.every(selector => 
-    elements.some(el => el.selector === selector)
+  // Check primary selectors first, then fall back to alternative selectors.
+  const targetsFound = targetSelectors && targetSelectors.every(selector =>
+    elements.some(el =>
+      el.selector === selector ||
+      (el.alternativeSelectors && el.alternativeSelectors.includes(selector))
+    )
   );
 
   if (targetSelectors && targetsFound) {
      // Skip expensive extraction
-     markdown = '[Execute Mode: Markdown generation skipped for performance]';
+     markdown = '[Targeted Observation: Markdown generation skipped for performance]';
   } else {
-     // Normal Explore Mode OR Fallback (targets not found)
+     // Normal Full Observation OR Fallback (targets not found)
      // Extract and convert content using string-based script to avoid esbuild __name issues
      const cleanHtml = await page.evaluate(EXTRACT_CLEAN_HTML_SCRIPT) as string;
 
@@ -460,13 +463,14 @@ export async function extractInteractiveElements(
 
       // 3. Process and add to list
       for (const el of rawElements) {
-        const selector = buildSelector(el);
+        const fingerprint = buildSelectorFingerprint(el);
 
         allElements.push({
           index: currentIndex++,
           tag: el.tag,
           text: el.text || `[${el.tag}]`,
-          selector,
+          selector: fingerprint.primary,
+          alternativeSelectors: fingerprint.alternatives.length > 0 ? fingerprint.alternatives : undefined,
           inputType: el.inputType,
           attributes: el.attributes,
           frameSelector,
@@ -770,8 +774,110 @@ function escapeCssValue(value: string): string {
 }
 
 /**
- * Build a CSS selector that uniquely identifies an element.
- * Prioritizes stable selectors: ID > data-testid > name > aria-label > text.
+ * Result of building selectors for an element.
+ * Contains a primary (highest-priority) selector and alternatives for resilient matching.
+ */
+interface SelectorFingerprint {
+  primary: string;
+  alternatives: string[];
+}
+
+/**
+ * Build CSS selectors that uniquely identify an element.
+ * Returns a primary selector (highest priority) and alternative selectors
+ * for resilient matching when the primary selector breaks.
+ *
+ * Priority: ID > data-testid > name > aria-label > text > href > fallback.
+ */
+function buildSelectorFingerprint(el: {
+  tag: string;
+  text: string;
+  attributes: Record<string, string>;
+  parentSelector?: string;
+}): SelectorFingerprint {
+  const { tag, text, attributes, parentSelector } = el;
+  const candidates: string[] = [];
+
+  // Priority 1: ID (most reliable)
+  if (attributes.id) {
+    candidates.push(`[id="${escapeCssValue(attributes.id)}"]`);
+  }
+
+  // Priority 1b: Test IDs (High signal for automation)
+  if (attributes['data-testid']) candidates.push(`[data-testid="${escapeCssValue(attributes['data-testid'])}"]`);
+  if (attributes['data-test-id']) candidates.push(`[data-test-id="${escapeCssValue(attributes['data-test-id'])}"]`);
+  if (attributes['data-test']) candidates.push(`[data-test="${escapeCssValue(attributes['data-test'])}"]`);
+
+  // Priority 2: Radio/Checkbox with value
+  if (tag === 'input' && attributes.type) {
+    if ((attributes.type === 'radio' || attributes.type === 'checkbox') && attributes.value) {
+      if (attributes.name) {
+         candidates.push(`input[type="${attributes.type}"][name="${escapeCssValue(attributes.name)}"][value="${escapeCssValue(attributes.value)}"]`);
+      }
+      candidates.push(`input[type="${attributes.type}"][value="${escapeCssValue(attributes.value)}"]`);
+    }
+  }
+
+  // Priority 3: Name (for inputs, textarea, select)
+  if (attributes.name && ['input', 'textarea', 'select'].includes(tag)) {
+    candidates.push(`${tag}[name="${escapeCssValue(attributes.name)}"]`);
+  }
+
+  // Priority 4: Type + placeholder
+  if (tag === 'input' && attributes.type && attributes.placeholder) {
+    candidates.push(`input[type="${attributes.type}"][placeholder="${escapeCssValue(attributes.placeholder)}"]`);
+  }
+
+  // Priority 4b: Aria-label
+  if (attributes['aria-label']) {
+    candidates.push(`[aria-label="${escapeCssValue(attributes['aria-label'])}"]`);
+  }
+
+  // Priority 5: Type only
+  if (tag === 'input' && attributes.type) {
+     candidates.push(`input[type="${attributes.type}"]`);
+  }
+
+  // Priority 6: Text content (Playwright's :has-text pseudo-selector)
+  if ((tag === 'button' || tag === 'a') && text) {
+    const textSelector = `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
+    if (parentSelector) {
+        candidates.push(`${parentSelector} ${textSelector}`);
+    } else {
+        candidates.push(textSelector);
+    }
+  }
+
+  // Priority 7: Href
+  if (tag === 'a' && attributes.href) {
+    const href = attributes.href;
+    if (href.length > 50) {
+      candidates.push(`a[href*="${escapeCssValue(href.substring(0, 30))}"]`);
+    } else {
+      candidates.push(`a[href="${escapeCssValue(href)}"]`);
+    }
+  }
+
+  // Fallback: first available attribute
+  if (candidates.length === 0 && Object.keys(attributes).length > 0) {
+    const [key, value] = Object.entries(attributes)[0];
+    candidates.push(`${tag}[${key}="${escapeCssValue(value)}"]`);
+  }
+
+  // Bare tag as last resort
+  if (candidates.length === 0) {
+    candidates.push(tag);
+  }
+
+  return {
+    primary: candidates[0],
+    alternatives: candidates.slice(1),
+  };
+}
+
+/**
+ * Build a single CSS selector (convenience wrapper for backward compatibility).
+ * Used by frame selector building where alternatives aren't needed.
  */
 function buildSelector(el: {
   tag: string;
@@ -779,74 +885,7 @@ function buildSelector(el: {
   attributes: Record<string, string>;
   parentSelector?: string;
 }): string {
-  const { tag, text, attributes, parentSelector } = el;
-
-  // Priority 1: ID (most reliable)
-  if (attributes.id) {
-    return `[id="${escapeCssValue(attributes.id)}"]`;
-  }
-
-  // Priority 1b: Test IDs (High signal for automation)
-  if (attributes['data-testid']) return `[data-testid="${escapeCssValue(attributes['data-testid'])}"]`;
-  if (attributes['data-test-id']) return `[data-test-id="${escapeCssValue(attributes['data-test-id'])}"]`;
-  if (attributes['data-test']) return `[data-test="${escapeCssValue(attributes['data-test'])}"]`;
-
-  // Priority 2: Radio/Checkbox with value (must come before generic name check)
-  // Radio buttons and checkboxes with the same name need value to disambiguate
-  if (tag === 'input' && attributes.type) {
-    if ((attributes.type === 'radio' || attributes.type === 'checkbox') && attributes.value) {
-      if (attributes.name) {
-         return `input[type="${attributes.type}"][name="${escapeCssValue(attributes.name)}"][value="${escapeCssValue(attributes.value)}"]`;
-      }
-      return `input[type="${attributes.type}"][value="${escapeCssValue(attributes.value)}"]`;
-    }
-  }
-
-  // Priority 3: Name (for inputs, textarea, select)
-  if (attributes.name && ['input', 'textarea', 'select'].includes(tag)) {
-    return `${tag}[name="${escapeCssValue(attributes.name)}"]`;
-  }
-
-  // Priority 4: Type + placeholder
-  if (tag === 'input' && attributes.type && attributes.placeholder) {
-    return `input[type="${attributes.type}"][placeholder="${escapeCssValue(attributes.placeholder)}"]`;
-  }
-
-  // Priority 4: Aria-label
-  if (attributes['aria-label']) {
-    return `[aria-label="${escapeCssValue(attributes['aria-label'])}"]`;
-  }
-
-  // Priority 5: Type only
-  if (tag === 'input' && attributes.type) {
-     return `input[type="${attributes.type}"]`;
-  }
-
-  // Priority 6: Text content (Playwright's :has-text pseudo-selector)
-  if ((tag === 'button' || tag === 'a') && text) {
-    const textSelector = `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
-    if (parentSelector) {
-        return `${parentSelector} ${textSelector}`;
-    }
-    return textSelector;
-  }
-
-  // Priority 7: Href
-  if (tag === 'a' && attributes.href) {
-    const href = attributes.href;
-    if (href.length > 50) {
-      return `a[href*="${escapeCssValue(href.substring(0, 30))}"]`;
-    }
-    return `a[href="${escapeCssValue(href)}"]`;
-  }
-
-  // Fallback
-  if (Object.keys(attributes).length > 0) {
-    const [key, value] = Object.entries(attributes)[0];
-    return `${tag}[${key}="${escapeCssValue(value)}"]`;
-  }
-
-  return tag;
+  return buildSelectorFingerprint(el).primary;
 }
 
 

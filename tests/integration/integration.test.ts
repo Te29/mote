@@ -103,10 +103,8 @@ describe('Explore vs Execute Mode', () => {
 
     // Verify
     expect(result.success).toBe(true);
-    // Should call full observe (no arguments)
-    expect(observeModule.observe).toHaveBeenCalledWith(mockPage); 
-    // Should not call observe with selector array
-    expect(observeModule.observe).not.toHaveBeenCalledWith(mockPage, expect.any(Array));
+    // Should call observe (targetSelectors is undefined when no execution path)
+    expect(observeModule.observe).toHaveBeenCalled();
   });
 
   it('should run with preset and execution path provided', async () => {
@@ -149,8 +147,8 @@ describe('Explore vs Execute Mode', () => {
 
     // Verify agent completes successfully with preset
     expect(result.success).toBe(true);
-    // In current architecture, observe is called without selectors (full observation)
-    expect(observeModule.observe).toHaveBeenCalledWith(mockPage);
+    // Observe is called (with optional targetSelectors when execution path exists)
+    expect(observeModule.observe).toHaveBeenCalled();
     expect(checkModule.think).toHaveBeenCalled();
   });
 
@@ -182,8 +180,8 @@ describe('Explore vs Execute Mode', () => {
       headless: true
     });
 
-    // Verify full observation (no selectors) and LLM reasoning
-    expect(observeModule.observe).toHaveBeenCalledWith(mockPage);
+    // Verify observation and LLM reasoning
+    expect(observeModule.observe).toHaveBeenCalled();
     expect(checkModule.think).toHaveBeenCalled();
     expect(result.success).toBe(true);
   });

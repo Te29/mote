@@ -201,6 +201,15 @@ export async function handleAct(
   // Update intervention metrics
   if (result.success) {
     ctx.interventionMetrics.consecutiveFailures = 0;
+    
+    // Increment execution step index if we are following a path
+    // We only increment if the action was part of the path logic (executionPath exists and index is valid)
+    if (
+      ctx.executionPath &&
+      ctx.runtime.currentExecutionStepIndex < ctx.executionPath.length
+    ) {
+      ctx.runtime.currentExecutionStepIndex++;
+    }
   } else {
     ctx.interventionMetrics.consecutiveFailures++;
   }

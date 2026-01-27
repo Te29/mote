@@ -99,7 +99,7 @@ export interface BrowserService {
 export interface ObserveService {
   /**
    * Observe the current page state and extract interactive elements.
-   * Supports both full observation (Explore mode) and targeted observation (Execute mode).
+   * Supports both full observation and targeted observation (when following an execution path).
    *
    * @param page - Playwright page instance
    * @param targetSelectors - Optional array of CSS selectors to prioritize (Execute mode)
@@ -167,7 +167,7 @@ export interface ReasonService {
 
   /**
    * Evaluate if drift has occurred between expected and actual page state.
-   * Used in Execute Mode to determine if we need to fall back to Explore Mode.
+   * Used during path execution to determine if we can proceed or need to terminate.
    *
    * @param expectedState - Expected page state from preset/cache
    * @param currentState - Actual current page state

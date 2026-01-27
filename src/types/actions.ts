@@ -113,7 +113,7 @@ export interface ThinkResultFail {
 // EXECUTION PATH (Cached Strategy)
 // -----------------------------------------------------------------------------
 // A linear sequence of steps learned from a successful Explore run.
-// Used for "Execute Mode" (fast path).
+// Used for fast-path execution.
 
 /**
  * A single cached step in an execution path.
@@ -126,8 +126,11 @@ export interface ExecutionStep {
   /** Human-readable description */
   description: string;
 
-  /** Expected URL (or pattern) for verification */
-  url: string;
+  /** 
+   * Expected URL (or pattern) for verification.
+   * Optional: Many tasks have dynamic URLs (session IDs, quiz IDs) that make strict matching unreliable.
+   */
+  url?: string;
 
   /**
    * The state we expect to see before acting.
