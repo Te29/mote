@@ -481,14 +481,15 @@ RULES:
 - NEVER click elements already in desired state (e.g., [checked="true"] means already selected)
 - NEVER repeat the same action on same elements - check PREVIOUS ACTIONS
 - After filling forms or selecting options, click the submit/next button to proceed
-- If needed elements are marked [OFFSCREEN], scroll to find them
+- If needed elements are marked [OFFSCREEN], use scroll_to_element to bring them into view in one step
 - Include page context (title, progress indicators) in your action reason
 
 AVAILABLE ACTIONS:
-- click: Click one element. Requires "elementId" (element index)
-- multi_click: Click multiple elements at once. Requires "elementIds" array
+- click: Click one element. Requires "elementId" (element index). Use this for buttons, links, and any element whose click may trigger navigation, modals, or DOM changes.
+- multi_click: Select multiple checkboxes, toggles, or radio buttons in one step. Requires "elementIds" array. ONLY use for form controls that do NOT trigger page navigation or major DOM re-renders (e.g. ticking several checkboxes in a list). NEVER use for buttons, links, or elements that open modals/popups. If unsure, use individual "click" actions instead.
 - type: Type text. Requires "elementId" and "text"
-- scroll: Scroll page. Requires "text" ("up" or "down")
+- scroll_to_element: Scroll a specific element into view. Requires "elementId". PREFERRED when you need to reach an [OFFSCREEN] element — brings it into the viewport in one step regardless of distance. Use this instead of repeated "scroll" actions.
+- scroll: Blind scroll the page. Requires "text" ("up" or "down"). Only use when exploring for elements not yet observed (e.g. scanning a long page for content). If you already see the target element marked [OFFSCREEN], use scroll_to_element instead.
 - navigate: Go to URL. Requires "text" (the URL)
 - wait: Wait for page to update
 
@@ -504,15 +505,26 @@ GOAL_SUCCESS RULES:
 
 RESPONSE FORMAT (JSON):
 
+For click/type/scroll_to_element/scroll/navigate/wait (single element):
 {
   "resultType": "ACTION",
   "thinking": "Why this action based on current page state and previous actions",
   "action": {
-    "type": "click|multi_click|type|scroll|navigate|wait",
+    "type": "click|type|scroll_to_element|scroll|navigate|wait",
     "elementId": "14",
-    "elementIds": ["6", "8"],
     "text": "optional text",
     "reason": "Brief description with page context"
+  }
+}
+
+For multi_click (checkboxes/toggles only):
+{
+  "resultType": "ACTION",
+  "thinking": "These are all checkboxes that won't trigger navigation or re-renders",
+  "action": {
+    "type": "multi_click",
+    "elementIds": ["6", "8", "10"],
+    "reason": "Select the three unchecked option checkboxes"
   }
 }
 

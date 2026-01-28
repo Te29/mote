@@ -23,8 +23,9 @@ import type { PageState } from './page.js';
  * - select: Choose an option from a dropdown menu
  * - checkbox: Toggle a checkbox or switch
  * - drag: Drag an element to another location
+ * - scroll_to_element: Scroll a specific element into view (uses scrollIntoViewIfNeeded)
  */
-export type WebAction = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'hover' | 'select' | 'checkbox' | 'drag' | 'multi_click';
+export type WebAction = 'click' | 'type' | 'scroll' | 'scroll_to_element' | 'navigate' | 'wait' | 'hover' | 'select' | 'checkbox' | 'drag' | 'multi_click';
 
 /**
  * A browser action with its parameters.
