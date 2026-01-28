@@ -373,8 +373,8 @@ export function formatHistory(history: StepResult[], maxItems: number = 5, maxTo
 
   // Detect loops: same action type + same selectors appearing multiple times
   const actionSignatures = recentHistory.map(h => {
-    const selectors = h.action.selectors?.join(',') || h.action.selector || '';
-    return `${h.action.type}:${selectors}`;
+    const ids = h.action.elementIds?.join(',') || h.action.elementId || '';
+    return `${h.action.type}:${ids}`;
   });
   const signatureCounts = new Map<string, number>();
   for (const sig of actionSignatures) {
@@ -389,8 +389,8 @@ export function formatHistory(history: StepResult[], maxItems: number = 5, maxTo
 
   formatted += '\n' + recentHistory.map((step, i) => {
     const status = step.success ? '✔' : '✗';
-    const selectors = step.action.selectors?.join(', ') || step.action.selector || '';
-    const target = selectors ? ` on [${selectors}]` : '';
+    const ids = step.action.elementIds?.join(', ') || step.action.elementId || '';
+    const target = ids ? ` on [${ids}]` : '';
     let line = `${i + 1}. [${status}] ${step.action.type}${target}: ${step.action.reason}`;
     
     if (!step.success && step.error) {
@@ -485,9 +485,9 @@ RULES:
 - Include page context (title, progress indicators) in your action reason
 
 AVAILABLE ACTIONS:
-- click: Click one element. Requires "selector" (element index)
-- multi_click: Click multiple elements at once. Requires "selectors" array
-- type: Type text. Requires "selector" and "text"
+- click: Click one element. Requires "elementId" (element index)
+- multi_click: Click multiple elements at once. Requires "elementIds" array
+- type: Type text. Requires "elementId" and "text"
 - scroll: Scroll page. Requires "text" ("up" or "down")
 - navigate: Go to URL. Requires "text" (the URL)
 - wait: Wait for page to update
@@ -509,8 +509,8 @@ RESPONSE FORMAT (JSON):
   "thinking": "Why this action based on current page state and previous actions",
   "action": {
     "type": "click|multi_click|type|scroll|navigate|wait",
-    "selector": "14",
-    "selectors": ["6", "8"],
+    "elementId": "14",
+    "elementIds": ["6", "8"],
     "text": "optional text",
     "reason": "Brief description with page context"
   }
@@ -547,7 +547,7 @@ OUTPUT FORMAT: JSON
   "reason": "explanation...",
   "adaptedAction": { // ONLY if can_proceed and action needs adaptation
     "type": "action_type",
-    "selector": "element_index",
+    "elementId": "element_index",
     "text": "text if needed",
     "reason": "why this action"
   }
@@ -555,19 +555,19 @@ OUTPUT FORMAT: JSON
 
 DECISION RULES:
 - can_proceed: The goal can still be accomplished. Either:
-  1. The expected element exists with same selector (return decision without adaptedAction)
-  2. The expected element moved/changed but it's still the same control (return decision WITH adaptedAction containing new selector)
+  1. The expected element exists with same elementId (return decision without adaptedAction)
+  2. The expected element moved/changed but it's still the same control (return decision WITH adaptedAction containing new elementId)
 
 - cannot_complete: The page changed fundamentally. The goal is no longer achievable on this page.
   Examples: Complete UI redesign, page no longer has the feature, completely different content.
 
 ADAPTATION GUIDELINES:
-1. If you find the same element with different selector/index, provide adaptedAction
+1. If you find the same element with different elementId/index, provide adaptedAction
 2. If the element text/context changed slightly but it's still the same control, provide adaptedAction
 3. Only return "cannot_complete" if the goal is truly impossible on this page
 4. Be adaptive - minor changes should result in "can_proceed"`;
 
-    const userPrompt = `PLANNED ACTION: ${plannedAction.type} on ${plannedAction.selector} ("${plannedAction.reason}")
+    const userPrompt = `PLANNED ACTION: ${plannedAction.type} on ${plannedAction.elementId} ("${plannedAction.reason}")
 
 EXPECTED TARGET CONTEXT:
 ${elementContext}

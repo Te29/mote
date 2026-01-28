@@ -52,8 +52,8 @@ config();
 
 const ActionSchema = z.object({
   type: z.enum(['click', 'type', 'scroll', 'navigate', 'wait', 'multi_click']),
-  selector: z.string().optional(), // Index or selector for single actions
-  selectors: z.array(z.string()).optional(), // Multiple indices for multi_click
+  elementId: z.string().optional(), // Index or selector for single actions
+  elementIds: z.array(z.string()).optional(), // Multiple indices for multi_click
   text: z.string().optional(),
   reason: z.string(),
 });
@@ -102,7 +102,7 @@ const DriftAnalysisSchema = z.object({
   reason: z.string(),
   adaptedAction: z.object({
     type: z.string(),
-    selector: z.string().optional(),
+    elementId: z.string().optional(),
     text: z.string().optional(),
     reason: z.string(),
   }).optional(),
@@ -239,7 +239,7 @@ async function executeLLM<T>(
 }
 
 // -----------------------------------------------------------------------------
-// DRIFT ANALYSIS (EXECUTE MODE)
+// DRIFT ANALYSIS (With preset and execution path)
 // -----------------------------------------------------------------------------
 
 /**
@@ -256,7 +256,7 @@ export async function evaluateDrift(
   plannedAction: Action,
   client: OpenAI
 ): Promise<DriftAnalysisResult> {
-  const targetElement = expectedState.elements.find(e => e.selector === plannedAction.selector);
+  const targetElement = expectedState.elements.find(e => String(e.index) === plannedAction.elementId);
   const elementContext = targetElement 
       ? `Target Element: <${targetElement.tag}> "${targetElement.text}" (Selector: ${targetElement.selector})`
       : "Target Element not found in expected state record.";

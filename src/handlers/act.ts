@@ -39,7 +39,7 @@ export async function handleAct(
 
     logVariable('INTERVENTION RESPONSE (ACTION)', {
       responseType: response.type,
-      action: { type: action.type, selector: action.selector, reason: action.reason },
+      action: { type: action.type, elementId: action.elementId, reason: action.reason },
       details:
         'reason' in response
           ? response.reason

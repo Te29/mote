@@ -87,7 +87,7 @@ describe('Explore vs Execute Mode', () => {
     } as any);
     vi.spyOn(checkModule, 'think').mockResolvedValueOnce({
       type: 'ACTION',
-      action: { type: 'click', selector: '1', reason: 'Clicking button' }
+      action: { type: 'click', elementId: '1', reason: 'Clicking button' }
     }).mockResolvedValueOnce({
       type: 'GOAL_SUCCESS', finalAnswer: 'Done'
     });
@@ -124,8 +124,8 @@ describe('Explore vs Execute Mode', () => {
       stepId: '1',
       description: 'Cached Step 1',
       url: 'https://example.com/test',
-      targetElementSelector: '#exact-btn',
-      action: { type: 'click' as const, selector: '#exact-btn', reason: 'Cached Click' },
+      targetCssSelector: '#exact-btn',
+      action: { type: 'click' as const, elementId: '#exact-btn', reason: 'Cached Click' },
       expectedPageState: {} as any
     }];
 
@@ -203,8 +203,8 @@ describe('Explore vs Execute Mode', () => {
     };
     const executionPath = [{
       stepId: '1', description: 'Step needing adaptation', url: 'https://example.com',
-      targetElementSelector: '#old-btn',
-      action: { type: 'click' as const, selector: '1', reason: 'Click button' },
+      targetCssSelector: '#old-btn',
+      action: { type: 'click' as const, elementId: '1', reason: 'Click button' },
       expectedPageState: { url: 'https://example.com', title: 'Expected', markdown: '', elements: [] } as PageState
     }];
 
@@ -253,11 +253,11 @@ describe('Explore vs Execute Mode', () => {
     vi.spyOn(checkModule, 'think')
       .mockResolvedValueOnce({
         type: 'ACTION',
-        action: { type: 'click', selector: '1', reason: 'Click first button' }
+        action: { type: 'click', elementId: '1', reason: 'Click first button' }
       })
       .mockResolvedValueOnce({
         type: 'ACTION',
-        action: { type: 'type', selector: '2', text: 'test input', reason: 'Type into field' }
+        action: { type: 'type', elementId: '2', text: 'test input', reason: 'Type into field' }
       })
       .mockResolvedValueOnce({
         type: 'GOAL_SUCCESS', finalAnswer: 'Exploration complete'
@@ -328,7 +328,7 @@ describe('Explore vs Execute Mode', () => {
     vi.spyOn(checkModule, 'think')
       .mockResolvedValueOnce({
         type: 'ACTION',
-        action: { type: 'click', selector: '1', reason: 'Go to next step' }
+        action: { type: 'click', elementId: '1', reason: 'Go to next step' }
       })
       .mockResolvedValueOnce({
         type: 'GOAL_SUCCESS',

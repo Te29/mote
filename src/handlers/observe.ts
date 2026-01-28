@@ -99,9 +99,9 @@ export async function handleObserve(
   ) {
     const currentStep = ctx.executionPath[ctx.runtime.currentExecutionStepIndex];
     // Only use target selector if it exists
-    if (currentStep && currentStep.targetElementSelector) {
-      targetSelectors = [currentStep.targetElementSelector];
-      console.log(`🎯 Targeted Observation: Looking for "${currentStep.targetElementSelector}"`);
+    if (currentStep && currentStep.targetCssSelector) {
+      targetSelectors = [currentStep.targetCssSelector];
+      console.log(`🎯 Targeted Observation: Looking for "${currentStep.targetCssSelector}"`);
     }
   }
 

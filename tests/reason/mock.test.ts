@@ -67,7 +67,7 @@ describe('Reason Module', () => {
                             resultType: 'ACTION',
                             action: {
                                 type: 'click',
-                                selector: '1',
+                                elementId: '1',
                                 reason: 'To proceed'
                             }
                         })
@@ -80,7 +80,7 @@ describe('Reason Module', () => {
             expect(result.type).toBe('ACTION');
             if (result.type === 'ACTION') {
                 expect(result.action.type).toBe('click');
-                expect(result.action.selector).toBe('1');
+                expect(result.action.elementId).toBe('1');
             }
         });
 
@@ -164,7 +164,7 @@ describe('Reason Module', () => {
                             resultType: 'ACTION',
                             action: {
                                 type: 'click',
-                                selector: '1',
+                                elementId: '1',
                                 reason: 'Fixed it'
                             }
                         })
@@ -193,7 +193,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
+            const action: Action = { type: 'click', elementId: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
             expect(result.decision).toBe('can_proceed');
@@ -209,7 +209,7 @@ describe('Reason Module', () => {
                             reason: 'Button moved',
                             adaptedAction: {
                                 type: 'click',
-                                selector: '#btn2',
+                                elementId: '#btn2',
                                 reason: 'Adapted to new button location'
                             }
                         })
@@ -217,13 +217,13 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
+            const action: Action = { type: 'click', elementId: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
             expect(result.decision).toBe('can_proceed');
             expect(result.reason).toBe('Button moved');
             if (result.decision === 'can_proceed') {
-                expect(result.adaptedAction?.selector).toBe('#btn2');
+                expect(result.adaptedAction?.elementId).toBe('#btn2');
             }
         });
 
@@ -236,7 +236,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
+            const action: Action = { type: 'click', elementId: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
             expect(result.decision).toBe('technical_error');

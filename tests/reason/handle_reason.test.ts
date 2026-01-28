@@ -20,13 +20,13 @@ describe('handleReason State Handler', () => {
         pageState: mockPageState
     };
 
-    const cachedAction: Action = { type: 'click', selector: '#target-btn', reason: 'Cached act' };
+    const cachedAction: Action = { type: 'click', elementId: '#target-btn', reason: 'Cached act' };
 
     const mockExecutionStep: ExecutionStep = {
         stepId: 'step-1',
         description: 'Click button',
         url: 'https://original-url.com', // Different from current URL
-        targetElementSelector: '#target-btn',
+        targetCssSelector: '#target-btn',
         expectedPageState: mockPageState,
         action: cachedAction
     };

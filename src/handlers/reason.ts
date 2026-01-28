@@ -38,7 +38,7 @@ export async function handleReason(
     ctx.runtime.currentExecutionStepIndex < ctx.executionPath.length
   ) {
     const currentStep = ctx.executionPath[ctx.runtime.currentExecutionStepIndex];
-    const { targetElementSelector, expectedPageState, action: cachedAction } = currentStep;
+    const { targetCssSelector: cssSelector, expectedPageState, action: cachedAction } = currentStep;
 
     console.log(`⚡ Checking Execution Path (Step ${ctx.runtime.currentExecutionStepIndex + 1}/${ctx.executionPath.length})`);
 
@@ -97,11 +97,11 @@ export async function handleReason(
     // ----------------------
     // CODE-LEVEL CHECK: Does the target element exist in current page state?
     const targetFound = state.pageState.elements.some(
-      (el) => el.selector === targetElementSelector
+      (el) => el.selector === cssSelector
     );
 
     if (targetFound) {
-      console.log(`✓ Exact match found for selector: ${targetElementSelector}`);
+      console.log(`✓ Exact match found for selector: ${cssSelector}`);
       return {
         phase: 'ACT',
         cycleIndex: state.cycleIndex,
@@ -117,7 +117,7 @@ export async function handleReason(
     // has the target selector as one of its alternatives, or if the expected
     // element's alternatives match any current element's primary selector.
     const altMatch = state.pageState.elements.find(
-      (el) => el.alternativeSelectors?.includes(targetElementSelector)
+      (el) => el.alternativeSelectors?.includes(cssSelector)
     );
 
     if (altMatch) {
@@ -125,10 +125,10 @@ export async function handleReason(
       // Update the cached action to use the matched element's index
       const adaptedAction: Action = {
         ...cachedAction,
-        selector: String(altMatch.index),
+        elementId: String(altMatch.index),
       };
       // Update execution path in-memory for self-healing persistence
-      currentStep.targetElementSelector = altMatch.selector;
+      currentStep.targetCssSelector = altMatch.selector;
       currentStep.action = adaptedAction;
       ctx.runtime.hadAdaptations = true;
       return {
@@ -142,7 +142,7 @@ export async function handleReason(
     // Also check: does the expected element exist in the cached state with alternatives,
     // and does any of those alternatives match a current page element?
     const expectedElement = expectedPageState.elements.find(
-      (el) => el.selector === targetElementSelector
+      (el) => el.selector === cssSelector
     );
     if (expectedElement?.alternativeSelectors) {
       for (const altSelector of expectedElement.alternativeSelectors) {
@@ -153,9 +153,9 @@ export async function handleReason(
           console.log(`🔄 Target found via expected element's alternative: ${altSelector} → element [${match.index}]`);
           const adaptedAction: Action = {
             ...cachedAction,
-            selector: String(match.index),
+            elementId: String(match.index),
           };
-          currentStep.targetElementSelector = match.selector;
+          currentStep.targetCssSelector = match.selector;
           currentStep.action = adaptedAction;
           ctx.runtime.hadAdaptations = true;
           return {
@@ -197,15 +197,19 @@ export async function handleReason(
 
         const adaptedAction: Action = {
           type: driftResult.adaptedAction.type as WebAction,
-          selector: driftResult.adaptedAction.selector,
+          elementId: driftResult.adaptedAction.elementId,
           text: driftResult.adaptedAction.text,
           reason: driftResult.adaptedAction.reason,
         };
 
         // Update execution path in-memory so self-healing persists for save
         currentStep.action = adaptedAction;
-        if (adaptedAction.selector) {
-          currentStep.targetElementSelector = adaptedAction.selector;
+        if (adaptedAction.elementId) {
+          // Resolve ephemeral elementId to persistent targetCssSelector
+          const matchedEl = state.pageState.elements.find(e => String(e.index) === adaptedAction.elementId);
+          if (matchedEl) {
+             currentStep.targetCssSelector = matchedEl.selector;
+          }
         }
 
         return {

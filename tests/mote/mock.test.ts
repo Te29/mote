@@ -168,7 +168,7 @@ describe('Mote Agent Loop (Mocked)', () => {
       .mockResolvedValueOnce({
         phase: 'ACT' as const,
         cycleIndex: 0,
-        action: { type: 'click', selector: '1', reason: 'Click it' },
+        action: { type: 'click', elementId: '1', reason: 'Click it' },
         pageState: mockPageState,
       })
       .mockResolvedValueOnce({

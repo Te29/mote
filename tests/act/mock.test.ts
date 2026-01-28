@@ -96,19 +96,19 @@ describe('Act Module - Unit Tests', () => {
     it('should route click action correctly', async () => {
       const action: Action = {
         type: 'click',
-        selector: '1',
+        elementId: '1',
         reason: 'Test click',
       };
       
       // Action should be routed to click handler
       expect(action.type).toBe('click');
-      expect(action.selector).toBe('1');
+      expect(action.elementId).toBe('1');
     });
 
     it('should route type action correctly', async () => {
       const action: Action = {
         type: 'type',
-        selector: '2',
+        elementId: '2',
         text: 'test@example.com',
         reason: 'Test type',
       };
@@ -151,7 +151,7 @@ describe('Act Module - Unit Tests', () => {
     it('should route hover action correctly', async () => {
       const action: Action = {
         type: 'hover',
-        selector: '1',
+        elementId: '1',
         reason: 'Test hover',
       };
       

@@ -477,15 +477,15 @@ async function executeClick(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selector) {
+  if (!action.elementId) {
     return {
       success: false,
-      error: 'Click action requires a selector (element index)',
+      error: 'Click action requires an elementId (element index)',
     };
   }
 
   // Look up the element by index
-  const index = parseInt(action.selector, 10);
+  const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
   if (!element) {
@@ -729,10 +729,10 @@ async function executeType(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selector) {
+  if (!action.elementId) {
     return {
       success: false,
-      error: 'Type action requires a selector (element index)',
+      error: 'Type action requires an elementId (element index)',
     };
   }
 
@@ -741,7 +741,7 @@ async function executeType(
   }
 
   // Look up element
-  const index = parseInt(action.selector, 10);
+  const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
   if (!element) {
@@ -967,15 +967,15 @@ async function executeHover(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selector) {
+  if (!action.elementId) {
     return {
       success: false,
-      error: 'Hover action requires a selector (element index)',
+      error: 'Hover action requires an elementId (element index)',
     };
   }
 
   // Look up the element by index
-  const index = parseInt(action.selector, 10);
+  const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
   if (!element) {
@@ -1033,10 +1033,10 @@ async function executeSelect(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selector) {
+  if (!action.elementId) {
     return {
       success: false,
-      error: 'Select action requires a selector (element index)',
+      error: 'Select action requires an elementId (element index)',
     };
   }
 
@@ -1045,7 +1045,7 @@ async function executeSelect(
   }
 
   // Look up element
-  const index = parseInt(action.selector, 10);
+  const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
   if (!element) {
@@ -1091,15 +1091,15 @@ async function executeCheckbox(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selector) {
+  if (!action.elementId) {
     return {
       success: false,
-      error: 'Checkbox action requires a selector (element index)',
+      error: 'Checkbox action requires an elementId (element index)',
     };
   }
 
   // Look up element
-  const index = parseInt(action.selector, 10);
+  const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
   if (!element) {
@@ -1153,10 +1153,10 @@ async function executeDrag(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selector) {
+  if (!action.elementId) {
     return {
       success: false,
-      error: 'Drag action requires a source selector (element index)',
+      error: 'Drag action requires a source elementId (element index)',
     };
   }
 
@@ -1168,7 +1168,7 @@ async function executeDrag(
   }
 
   // Look up source element
-  const sourceIndex = parseInt(action.selector, 10);
+  const sourceIndex = parseInt(action.elementId, 10);
   const sourceElement = elements.find((el) => el.index === sourceIndex);
 
   // Look up target element
@@ -1290,21 +1290,21 @@ async function executeMultiClick(
   elements: ElementInfo[],
   verbose: boolean,
 ): Promise<ExecuteResult> {
-  if (!action.selectors || action.selectors.length === 0) {
+  if (!action.elementIds || action.elementIds.length === 0) {
     return {
       success: false,
-      error: 'multi_click action requires selectors array',
+      error: 'multi_click action requires elementIds array',
     };
   }
 
   if (verbose) {
-    console.log(`🖱️  Multi-clicking: [${action.selectors.join(', ')}]`);
+    console.log(`🖱️  Multi-clicking: [${action.elementIds.join(', ')}]`);
   }
 
   const errors: string[] = [];
   let successCount = 0;
 
-  for (const selectorStr of action.selectors) {
+  for (const selectorStr of action.elementIds) {
     const index = parseInt(selectorStr, 10);
     const element = elements.find((el) => el.index === index);
 
@@ -1354,10 +1354,10 @@ async function executeMultiClick(
   }
 
   // Multi-click is only a success if ALL requested elements were successfully handled
-  if (successCount < action.selectors.length) {
+  if (successCount < action.elementIds.length) {
     return {
       success: false,
-      error: `Multi-click partially failed (${successCount}/${action.selectors.length}): ${errors.join('; ')}`,
+      error: `Multi-click partially failed (${successCount}/${action.elementIds.length}): ${errors.join('; ')}`,
     };
   }
 

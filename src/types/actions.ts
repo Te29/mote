@@ -42,10 +42,10 @@ export interface Action {
   type: WebAction;
 
   /** Element index for click/type actions (e.g., "1", "2", "3") */
-  selector?: string;
+  elementId?: string;
 
   /** Multiple element indices for multi_click action (e.g., ["5", "6", "8"]) */
-  selectors?: string[];
+  elementIds?: string[];
 
   /** Text to type, URL to navigate to, or scroll direction */
   text?: string;
@@ -142,7 +142,7 @@ export interface ExecutionStep {
    * The specific element we need for the next action.
    * This is a selector string.
    */
-  targetElementSelector: string;
+  targetCssSelector: string;
 
   /** The action to perform (Result of previous Reason step) */
   action: Action;

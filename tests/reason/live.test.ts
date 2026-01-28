@@ -121,7 +121,7 @@ describe('Reason Module - Live LLM Tests', () => {
         // Mock the initial result to skip a heavy LLM call
         const initialResult: ThinkResult = {
             type: 'ACTION',
-            action: { type: 'type', selector: '1', text: 'wrong query', reason: 'Initial thought' }
+            action: { type: 'type', elementId: '1', text: 'wrong query', reason: 'Initial thought' }
         };
 
         const interventionResult = await think(
@@ -143,7 +143,7 @@ describe('Reason Module - Live LLM Tests', () => {
     }, 300000);
 
     it.skip('should evaluate drift between states', async () => {
-        const driftAction: Action = { type: 'click', selector: 'input[name="q"]', reason: 'Search' };
+        const driftAction: Action = { type: 'click', elementId: 'input[name="q"]', reason: 'Search' };
         const result = await evaluateDrift(mockPageState, mockPageState, driftAction, client);
 
         expect(['can_proceed', 'cannot_complete']).toContain(result.decision);

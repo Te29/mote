@@ -60,7 +60,7 @@ export function extractPathFromHistory(history: StepResult[]): ExecutionStep[] {
     .filter((step) => step.action.type !== 'wait') // Skip wait actions
     .map((step, index) => {
       // Find the element that was targeted (in the BEFORE state, where it exists)
-      const elementIndex = parseInt(step.action.selector || '0', 10);
+      const elementIndex = parseInt(step.action.elementId || '0', 10);
       const targetElement = step.pageStateBefore.elements.find(
         (el: import('../types/index.js').ElementInfo) => el.index === elementIndex
       );
@@ -69,12 +69,12 @@ export function extractPathFromHistory(history: StepResult[]): ExecutionStep[] {
         stepId: `learned-${index + 1}`,
         description: step.action.reason || `Step ${index + 1}`,
         url: step.pageStateBefore.url,  // URL where we need to be to execute this action
-        targetElementSelector: targetElement?.selector || '',
+        targetCssSelector: targetElement?.selector || '',
         action: step.action,
         expectedPageState: step.pageStateBefore,  // State we expect BEFORE executing the action
       };
     })
-    .filter((step) => step.targetElementSelector !== '' && !/^\d+$/.test(step.targetElementSelector)); // Only include steps with valid, non-index selectors
+    .filter((step) => step.targetCssSelector !== '' && !/^\d+$/.test(step.targetCssSelector)); // Only include steps with valid, non-index selectors
 }
 
 // -----------------------------------------------------------------------------
