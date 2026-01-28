@@ -177,16 +177,20 @@ export async function handleReason(
       ctx.services.llmClient
     );
 
-    // BINARY DECISION: Adapt or Terminate
-    if (driftResult.decision === 'cannot_complete') {
+    // BINARY DECISION: Adapt, Fallback, or Terminate
+    if (driftResult.decision === 'technical_error') {
+      console.warn(`⚠️ Drift Analysis Technical Failure: ${driftResult.reason}. Falling back to autonomous reasoning.`);
+      ctx.executionPath = undefined;
+      // We fall through to the full LLM reasoning logic below
+    } else if (driftResult.decision === 'cannot_complete') {
+      const message = `Execution path broken: ${driftResult.reason}. Please exit and generate a new preset for this stage.`;
+      console.error(`❌ ${message}`);
       return {
         phase: 'TERMINATED',
         success: false,
-        message: `Execution path broken: ${driftResult.reason}`,
+        message,
       };
-    }
-
-    if (driftResult.decision === 'can_proceed') {
+    } else if (driftResult.decision === 'can_proceed') {
       if (driftResult.adaptedAction) {
         console.log(`🛠️ Adapted action: ${driftResult.reason}`);
         ctx.runtime.hadAdaptations = true;

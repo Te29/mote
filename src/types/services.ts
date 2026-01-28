@@ -20,6 +20,7 @@ import type {
   // LLMConfig removed
 } from './index.js';
 import type { InterventionMetrics, Intervention } from '../prompt.js';
+import type { DriftAnalysisResult } from '../reason.js';
 
 // =============================================================================
 // BROWSER SERVICE
@@ -123,19 +124,8 @@ export interface ObserveService {
 // REASON SERVICE
 // =============================================================================
 
-/**
- * Result of drift analysis comparing expected vs actual state.
- */
-export interface DriftAnalysisResult {
-  decision: 'can_proceed' | 'cannot_complete';
-  reason: string;
-  adaptedAction?: {
-    type: string;
-    selector?: string;
-    text?: string;
-    reason: string;
-  };
-}
+// DriftAnalysisResult is imported from reason.ts (single source of truth via Zod schema)
+export type { DriftAnalysisResult };
 
 /**
  * Validation result for session plans.

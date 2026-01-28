@@ -58,6 +58,18 @@ const ActionSchema = z.object({
   reason: z.string(),
 });
 
+const PlanResultSchema = z.object({
+  cycleCount: z.number().optional().default(1),
+  cycleDescription: z.string().optional().default('Complete the task'),
+  goalSummary: z.string().optional(),
+});
+
+const CycleStrategySchema = z.object({
+  pattern: z.string(),
+  stepSequence: z.array(z.string()),
+  keyElements: z.array(z.string()),
+});
+
 const ThinkResultSchema = z.discriminatedUnion('resultType', [
   z.object({
     resultType: z.literal('ACTION'),
@@ -96,7 +108,13 @@ const DriftAnalysisSchema = z.object({
   }).optional(),
 });
 
-export type DriftAnalysisResult = z.infer<typeof DriftAnalysisSchema>;
+// Extends the Zod-inferred type with 'technical_error', a code-level fallback
+// that should never be produced by the LLM itself.
+export type DriftAnalysisResult = z.infer<typeof DriftAnalysisSchema> | {
+  decision: 'technical_error';
+  reason: string;
+  adaptedAction?: undefined;
+};
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -132,6 +150,94 @@ export function getDefaultModel(): string {
   return process.env.LLM_MODEL || 'llama3.2';
 }
 
+/**
+ * Internal helper to execute an LLM call with built-in retries and Zod validation.
+ */
+async function executeLLM<T>(
+  client: OpenAI,
+  schema: z.ZodSchema<T>,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  options: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    responseFormat?: 'json_object' | 'text';
+    retries?: number;
+    verbose?: boolean;
+    onRetry?: (error: any, attempt: number) => void;
+  } = {}
+): Promise<T> {
+  const model = options.model || getDefaultModel();
+  const retries = options.retries ?? 3;
+  const temperature = options.temperature ?? 0.2;
+  const maxTokens = options.maxTokens ?? 500;
+  const responseFormat = options.responseFormat ?? 'json_object';
+  const verbose = options.verbose ?? process.env.VERBOSE === 'true';
+
+  // Clone messages to avoid mutating the caller's array across retries
+  const messageHistory = [...messages];
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: messageHistory,
+        response_format: { type: responseFormat },
+        temperature,
+        max_tokens: maxTokens,
+      });
+
+      const content = response.choices[0]?.message?.content;
+
+      logPromptToFile('LLM RESPONSE', content ?? '(empty)');
+
+      // Guard: treat empty/null LLM responses as errors to avoid
+      // schemas with optional defaults silently accepting '{}'
+      if (!content || content.trim() === '' || content.trim() === '{}') {
+        throw new Error('LLM returned empty or no content');
+      }
+
+      let parsed: any;
+      if (responseFormat === 'json_object') {
+        parsed = JSON.parse(content);
+      } else {
+        parsed = content;
+      }
+
+      return schema.parse(parsed);
+
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < retries) {
+        if (options.onRetry) options.onRetry(error, attempt);
+        const errorMsg = error instanceof z.ZodError 
+          ? 'Validation failed' 
+          : (error instanceof Error ? error.message : String(error));
+        
+        if (verbose) {
+          console.warn(`    ⚠️ LLM attempt ${attempt}/${retries} failed (${errorMsg}), retrying...`);
+        }
+
+        // If it was a ZodError or JSON parse error, we provide feedback for self-correction
+        if (error instanceof z.ZodError || error instanceof SyntaxError) {
+          messageHistory.push({
+            role: 'assistant',
+            content: lastError instanceof Error ? lastError.message : 'Invalid response format.'
+          });
+          messageHistory.push({
+            role: 'user',
+            content: `Your previous response failed validation: ${error.message}. Please correct the JSON and try again.`
+          });
+        }
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 // -----------------------------------------------------------------------------
 // DRIFT ANALYSIS (EXECUTE MODE)
 // -----------------------------------------------------------------------------
@@ -150,9 +256,6 @@ export async function evaluateDrift(
   plannedAction: Action,
   client: OpenAI
 ): Promise<DriftAnalysisResult> {
-  const model = getDefaultModel();
-  
-  // Find the target element in expected state to give context
   const targetElement = expectedState.elements.find(e => e.selector === plannedAction.selector);
   const elementContext = targetElement 
       ? `Target Element: <${targetElement.tag}> "${targetElement.text}" (Selector: ${targetElement.selector})`
@@ -163,24 +266,17 @@ export async function evaluateDrift(
   );
 
   try {
-      const response = await client.chat.completions.create({
-          model,
-          messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-          ],
-          response_format: { type: 'json_object' },
-          temperature: 0.1, // Very precise
-          max_tokens: 500
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-      return DriftAnalysisSchema.parse(JSON.parse(content));
+      return await executeLLM(client, DriftAnalysisSchema, [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+      ], { temperature: 0.1 });
 
   } catch (error) {
-      console.error('❌ Drift Analysis Failed:', String(error));
-      // Fail-safe: If we can't evaluate drift, assume we cannot complete
-      return { decision: 'cannot_complete', reason: 'Drift analysis failed - unable to verify page state' };
+      console.error('❌ Drift Analysis Failed after retries:', String(error));
+      return { 
+          decision: 'technical_error', 
+          reason: `LLM technical failure: ${error instanceof Error ? error.message : String(error)}` 
+      };
   }
 }
 
@@ -199,7 +295,6 @@ export async function think(
   intervention?: Intervention,
   customSystemPrompt?: string,
 ): Promise<ThinkResult> {
-  const model = getDefaultModel();
   const verbose = process.env.VERBOSE === 'true';
 
   const { systemPrompt, situationPrompt, tokenStats } = buildExecutionPrompt(
@@ -219,109 +314,64 @@ export async function think(
   logPromptToFile('SITUATION PROMPT', situationPrompt);
   logPromptToFile('TOKEN STATS', `Total: ${tokenStats.totalTokens} (System: ${tokenStats.systemTokens}, Situation: ${tokenStats.situationTokens})`);
 
-  const MAX_LLM_RETRIES = 3;
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= MAX_LLM_RETRIES; attempt++) {
-    try {
-      const response = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: situationPrompt },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-        max_tokens: 500,
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-
-      // Log the raw response for debugging invalid JSON
-      logPromptToFile('LLM RESPONSE', content);
-
-      if (verbose) {
-        console.log(`   Raw response: ${content.substring(0, 200)}...`);
+  try {
+    const parsed = await executeLLM(client, ThinkResultSchema, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: situationPrompt },
+    ], {
+      onRetry: () => {
+        interventionMetrics.llmParseFailures++;
       }
+    });
 
-      // -----------------------------------------------------------------------
-      // ZOD PARSING & VALIDATION
-      // -----------------------------------------------------------------------
-      const parsed = ThinkResultSchema.parse(JSON.parse(content));
+    // Map Zod result back to internal ThinkResult
+    if (parsed.resultType === 'ACTION') {
+      return {
+        type: 'ACTION',
+        action: parsed.action
+      };
+    }
 
-      // Map Zod result back to internal ThinkResult
-      if (parsed.resultType === 'ACTION') {
-          return {
-              type: 'ACTION',
-              action: parsed.action
-          };
-      }
+    if (parsed.resultType === 'GOAL_SUCCESS') {
+      return { type: 'GOAL_SUCCESS', finalAnswer: parsed.finalAnswer };
+    }
 
-      if (parsed.resultType === 'GOAL_SUCCESS') {
-          return { type: 'GOAL_SUCCESS', finalAnswer: parsed.finalAnswer };
-      }
+    if (parsed.resultType === 'FAIL') {
+      return { type: 'FAIL', error: parsed.error };
+    }
 
-      if (parsed.resultType === 'FAIL') {
-          return { type: 'FAIL', error: parsed.error };
-      }
+    if (parsed.resultType === 'REPLAN') {
+      return { type: 'REPLAN', reason: parsed.reason };
+    }
 
-      if (parsed.resultType === 'REPLAN') {
-          return { type: 'REPLAN', reason: parsed.reason };
-      }
+    if (parsed.resultType === 'RETRY_PERCEPTION') {
+      return { type: 'RETRY_PERCEPTION' };
+    }
 
-      if (parsed.resultType === 'RETRY_PERCEPTION') {
-          return { type: 'RETRY_PERCEPTION' };
-      }
+    throw new Error('Unreachable: Invalid Zod Parse Result');
 
-      throw new Error('Unreachable: Invalid Zod Parse Result');
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (verbose) {
+      console.error('❌ LLM/Reasoning Error after retries:', errorMsg);
+    } else {
+      console.error('LLM/Reasoning Error:', errorMsg);
+    }
 
-    } catch (error) {
-      lastError = error;
-      interventionMetrics.llmParseFailures++;
-
-      if (attempt < MAX_LLM_RETRIES) {
-        const errorMsg = error instanceof z.ZodError
-          ? `Invalid JSON format from LLM`
-          : (error instanceof Error ? error.message : String(error));
-        console.warn(`⚠️ LLM attempt ${attempt}/${MAX_LLM_RETRIES} failed (${errorMsg}), retrying...`);
-        continue;
-      }
-
-      // Final attempt exhausted — log and return FAIL with parse error flag
-      if (verbose) {
-          try {
-              console.error('❌ RAW Error Object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-          } catch {
-              console.error('❌ RAW Error Object (Stringified):', String(error));
-          }
-      } else {
-          console.error('❌ LLM/Reasoning Error:', error instanceof Error ? error.message : String(error));
-      }
-
-      if (error instanceof z.ZodError) {
-          return {
-              type: 'FAIL',
-              error: `Invalid JSON format from LLM after ${MAX_LLM_RETRIES} attempts: ${error.message}`,
-              isParseError: true,
-          };
-      }
-
+    if (error instanceof z.ZodError) {
       return {
         type: 'FAIL',
-        error: `LLM API error after ${MAX_LLM_RETRIES} attempts: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        error: `Invalid JSON format from LLM after retries: ${error.message}`,
         isParseError: true,
       };
     }
-  }
 
-  // Unreachable, but satisfies TypeScript
-  return {
-    type: 'FAIL',
-    error: `LLM failed after ${MAX_LLM_RETRIES} attempts: ${String(lastError)}`,
-    isParseError: true,
-  };
+    return {
+      type: 'FAIL',
+      error: `LLM API error after retries: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      isParseError: true,
+    };
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -332,17 +382,21 @@ export async function askLLM(
   question: string,
   client: OpenAI,
 ): Promise<string> {
-  const model = getDefaultModel();
-  const { userPrompt } = buildSimpleQuestionPrompt(question); // Destructure to get userPrompt
+  const { systemPrompt, userPrompt } = buildSimpleQuestionPrompt(question);
 
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: 'user', content: userPrompt }],
-    temperature: 0.7,
-    max_tokens: 500,
-  });
-
-  return response.choices[0]?.message?.content || '';
+  try {
+    return await executeLLM(client, z.string().min(1), [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ], {
+      temperature: 0.7,
+      responseFormat: 'text',
+      retries: 2,
+    });
+  } catch (error) {
+    console.error('askLLM failed:', error instanceof Error ? error.message : String(error));
+    return '';
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -355,7 +409,6 @@ export async function generatePlan(
   existingPlan?: SessionTracker,
   replanReason?: string,
 ): Promise<SessionTracker> {
-  const model = getDefaultModel();
   const now = new Date();
 
   let promptData: { systemPrompt: string; userPrompt: string };
@@ -367,19 +420,10 @@ export async function generatePlan(
   }
 
   try {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-          { role: 'system', content: promptData.systemPrompt },
-          { role: 'user', content: promptData.userPrompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3,
-      max_tokens: 300,
-    });
-
-    const content = response.choices[0]?.message?.content || '{}';
-    const parsed = JSON.parse(content);
+    const parsed = await executeLLM(client, PlanResultSchema, [
+      { role: 'system', content: promptData.systemPrompt },
+      { role: 'user', content: promptData.userPrompt }
+    ], { temperature: 0.3, maxTokens: 300 });
 
     const cycleCount = parsed.cycleCount || 1;
     const cycleDescription = parsed.cycleDescription || 'Complete the task';
@@ -421,7 +465,8 @@ export async function generatePlan(
       startedAt: existingPlan?.startedAt || now.toISOString(),
       lastUpdatedAt: now.toISOString(),
     };
-  } catch {
+  } catch (error) {
+    console.error('❌ Plan Generation Failed after retries:', error);
     return {
       goalSummary: goal.description,
       cycleDescription: 'Complete the goal',
@@ -476,23 +521,14 @@ export async function generateStrategy(
   client: OpenAI
 ): Promise<CycleStrategy | undefined> {
   const { systemPrompt, userPrompt } = buildStrategyPrompt(history);
-  const model = getDefaultModel();
 
   try {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
-    });
-
-    const content = response.choices[0]?.message?.content || '{}';
-    return JSON.parse(content) as CycleStrategy;
+    return await executeLLM(client, CycleStrategySchema, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ], { temperature: 0.1 });
   } catch (error) {
-    console.error('Failed to generate strategy:', error);
+    console.error('❌ Failed to generate strategy after retries:', error);
     return undefined;
   }
 }

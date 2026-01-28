@@ -119,8 +119,9 @@ describe('Reason Module', () => {
             expect(result.type).toBe('FAIL');
         });
 
-        it('should return FAIL on Zod validation error (wrong action type)', async () => {
-            mockCreate.mockResolvedValueOnce({
+        it('should return FAIL on Zod validation error after retries', async () => {
+            // Provide invalid responses for all retries
+            const invalidResponse = {
                 choices: [{
                     message: {
                         content: JSON.stringify({
@@ -130,14 +131,52 @@ describe('Reason Module', () => {
                         })
                     }
                 }]
-            });
+            };
+            
+            mockCreate.mockResolvedValue(invalidResponse);
 
             const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
 
             expect(result.type).toBe('FAIL');
+            expect(mockCreate).toHaveBeenCalledTimes(3); // Should have retried
             if (result.type === 'FAIL') {
                 expect(result.error).toContain('Invalid JSON format');
             }
+        });
+
+        it('should succeed on retry if LLM self-corrects', async () => {
+            // 1. First attempt fails validation (wrong action type)
+            mockCreate.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: JSON.stringify({
+                            resultType: 'ACTION',
+                            action: 'click' // invalid
+                        })
+                    }
+                }]
+            });
+            // 2. Second attempt succeeds
+            mockCreate.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: JSON.stringify({
+                            resultType: 'ACTION',
+                            action: {
+                                type: 'click',
+                                selector: '1',
+                                reason: 'Fixed it'
+                            }
+                        })
+                    }
+                }]
+            });
+
+            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
+
+            expect(result.type).toBe('ACTION');
+            expect(mockCreate).toHaveBeenCalledTimes(2);
+            expect(mockMetrics.llmParseFailures).toBeGreaterThan(0);
         });
     });
 
@@ -183,11 +222,13 @@ describe('Reason Module', () => {
 
             expect(result.decision).toBe('can_proceed');
             expect(result.reason).toBe('Button moved');
-            expect(result.adaptedAction?.selector).toBe('#btn2');
+            if (result.decision === 'can_proceed') {
+                expect(result.adaptedAction?.selector).toBe('#btn2');
+            }
         });
 
-        it('should return cannot_complete on parse error', async () => {
-            mockCreate.mockResolvedValueOnce({
+        it('should return technical_error on parse error after retries', async () => {
+            mockCreate.mockResolvedValue({
                 choices: [{
                     message: {
                         content: 'Invalid response'
@@ -198,7 +239,8 @@ describe('Reason Module', () => {
             const action: Action = { type: 'click', selector: '#btn1', reason: 'Test' };
             const result = await evaluateDrift(mockPageState, mockPageState, action, client);
 
-            expect(result.decision).toBe('cannot_complete');
+            expect(result.decision).toBe('technical_error');
+            expect(mockCreate).toHaveBeenCalledTimes(3); // Verification of retries
         });
     });
 
