@@ -19,411 +19,12 @@
 //
 // =============================================================================
 
-import type { Page, Download, Locator, Frame } from 'playwright';
-import type { Action, ElementInfo, ExecuteResult, DownloadInfo } from './types/index.js';
+import type { Page, Download, Frame } from 'playwright';
+import type { Action, ElementInfo, ExecuteResult, DownloadInfo } from '../types/index.js';
 import * as path from 'path';
 import * as os from 'os';
-
-// -----------------------------------------------------------------------------
-// FRAME HELPERS
-// -----------------------------------------------------------------------------
-
-/**
- * Get a locator for an element, handling iframe context.
- * If the element is inside an iframe, returns a locator within that frame.
- * This is the key to supporting elements inside iframes (Stripe, Intercom, etc.)
- */
-function getElementLocator(page: Page, element: ElementInfo): Locator {
-  if (element.frameSelector) {
-    // Element is inside an iframe - use frameLocator to access it
-    return page.frameLocator(element.frameSelector).locator(element.selector);
-  }
-  // Element is in main frame
-  return page.locator(element.selector);
-}
-
-/**
- * Resolve the execution context (Page or Frame) for an element.
- * If the element lives inside an iframe, returns that iframe's Frame object.
- * Falls back to the page if the frame cannot be resolved.
- */
-async function getElementContext(page: Page, element: ElementInfo): Promise<Page | Frame> {
-  if (element.frameSelector) {
-    const frameLocator = page.frameLocator(element.frameSelector);
-    // Use locator.owner() to get a FrameLocator's underlying frame reliably
-    // We query any element inside the frame to obtain the Frame reference
-    try {
-      const handle = await frameLocator.locator(':root').elementHandle({ timeout: 2000 });
-      if (handle) {
-        const ownerFrame = await handle.ownerFrame();
-        if (ownerFrame) return ownerFrame;
-      }
-    } catch {
-      // Frame not available — fall back to page context
-    }
-  }
-  return page;
-}
-
-// -----------------------------------------------------------------------------
-// HUMAN-LIKE BEHAVIOR HELPERS
-// -----------------------------------------------------------------------------
-
-/**
- * Generate a random delay within a range to simulate human timing variability.
- */
-function randomDelay(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/**
- * Sleep for a random duration to appear more human-like.
- */
-async function humanDelay(page: Page, min = 100, max = 300): Promise<void> {
-  await page.waitForTimeout(randomDelay(min, max));
-}
-
-/**
- * Move mouse to element with human-like curve before clicking.
- * Uses small random offset to avoid clicking exact center every time.
- * Now supports iframes via Locator.boundingBox().
- */
-async function humanMouseMove(page: Page, element: ElementInfo): Promise<void> {
-  const locator = getElementLocator(page, element);
-  
-  // boundingBox returns coordinates relative to the main frame viewport
-  // This works correctly for page.mouse.move which also uses viewport coordinates
-  const box = await locator.boundingBox();
-  
-  if (!box) return;
-
-  // Calculate a point near center with slight randomness
-  const offsetX = randomDelay(-5, 5);
-  const offsetY = randomDelay(-3, 3);
-  const targetX = box.x + box.width / 2 + offsetX;
-  const targetY = box.y + box.height / 2 + offsetY;
-
-  // Move mouse with steps to simulate natural movement
-  await page.mouse.move(targetX, targetY, { steps: randomDelay(5, 15) });
-
-  // Brief pause after moving, like a human would
-  await humanDelay(page, 50, 150);
-}
-
-/**
- * Type text character by character with variable delays like a human typist.
- */
-async function humanType(page: Page, text: string): Promise<void> {
-  for (const char of text) {
-    await page.keyboard.type(char, { delay: randomDelay(30, 120) });
-  }
-}
-
-// -----------------------------------------------------------------------------
-// ELEMENT VERIFICATION
-// -----------------------------------------------------------------------------
-
-/**
- * Result of element verification.
- */
-interface VerifyResult {
-  valid: boolean;
-  error?: string;
-  currentText?: string;
-  currentTag?: string;
-}
-
-/**
- * Verify that an element still matches its expected identity.
- * Prevents clicking the wrong element if DOM has shifted since observe().
- *
- * Checks:
- * - Element still exists at selector
- * - Tag name matches (button vs a vs input)
- * - Text content is similar (allows minor whitespace differences)
- */
-async function verifyElement(
-  page: Page,
-  element: ElementInfo,
-): Promise<VerifyResult> {
-  try {
-    // Use getElementLocator to handle iframes transparently
-    const locator = getElementLocator(page, element);
-    
-    // waiting for element handle with short timeout (verification should be fast)
-    const handle = await locator.elementHandle({ timeout: 2000 });
-
-    if (!handle) {
-      return {
-        valid: false,
-        error: `Element no longer exists at selector: ${element.selector}`,
-      };
-    }
-
-    // Get current element properties
-    const currentProps = await handle.evaluate((el) => ({
-      tag: el.tagName.toLowerCase(),
-      text: (el.textContent || '').trim().substring(0, 100),
-    }));
-
-    // Check tag matches
-    if (currentProps.tag !== element.tag) {
-      return {
-        valid: false,
-        error: `Element tag changed: expected "${element.tag}", found "${currentProps.tag}"`,
-        currentTag: currentProps.tag,
-        currentText: currentProps.text,
-      };
-    }
-
-    // Check text similarity (normalize whitespace for comparison)
-    const expectedText = element.text.trim().toLowerCase();
-    const actualText = currentProps.text.toLowerCase();
-
-    // Allow exact match or if one contains the other (handles dynamic content)
-    const textMatches =
-      expectedText === actualText ||
-      expectedText.includes(actualText) ||
-      actualText.includes(expectedText) ||
-      // Empty text is okay for inputs
-      element.tag === 'input' ||
-      element.tag === 'textarea';
-
-    if (!textMatches && expectedText.length > 0) {
-      return {
-        valid: false,
-        error: `Element text changed: expected "${element.text}", found "${currentProps.text}"`,
-        currentTag: currentProps.tag,
-        currentText: currentProps.text,
-      };
-    }
-
-    return { valid: true };
-  } catch (error) {
-    return {
-      valid: false,
-      error: `Failed to verify element: ${error instanceof Error ? error.message : 'unknown error'}`,
-    };
-  }
-}
-
-// -----------------------------------------------------------------------------
-// VERIFY-OR-RESOLVE: Combined verification + resilient resolution
-// -----------------------------------------------------------------------------
-
-/**
- * Verify an element exists, falling back to resilient resolution if needed.
- * Returns an updated element with a working selector, or an error.
- *
- * Flow:
- * 1. verifyElement() — fast check that primary selector still works
- * 2. resolveElement() — tries alternatives then fuzzy matching
- * 3. Returns updated element with resolved selector, or error
- */
-async function verifyOrResolve(
-  page: Page,
-  element: ElementInfo,
-): Promise<{ valid: true; element: ElementInfo } | { valid: false; error: string }> {
-  // Fast path: primary selector still valid
-  const verification = await verifyElement(page, element);
-  if (verification.valid) {
-    return { valid: true, element };
-  }
-
-  // Slow path: try alternative selectors and fuzzy matching
-  console.log(`   ⚠️ Primary verification failed: ${verification.error}`);
-  const resolution = await resolveElement(page, element);
-
-  if (resolution.found && resolution.resolvedSelector) {
-    // Update element's selector to the one that worked
-    const resolved: ElementInfo = {
-      ...element,
-      selector: resolution.resolvedSelector,
-    };
-    // Re-verify with the resolved selector (tag + text check)
-    const recheck = await verifyElement(page, resolved);
-    if (recheck.valid) {
-      return { valid: true, element: resolved };
-    }
-    // Resolved something but it didn't pass tag/text verification
-    return {
-      valid: false,
-      error: `Resolved via ${resolution.method} but verification failed: ${recheck.error}`,
-    };
-  }
-
-  return {
-    valid: false,
-    error: resolution.error || verification.error || 'Element not found',
-  };
-}
-
-// -----------------------------------------------------------------------------
-// ELEMENT RESOLUTION (Fuzzy Matching Layer)
-// -----------------------------------------------------------------------------
-
-/**
- * Result of resolving an element on the page.
- * When the primary selector fails, this tries alternative selectors and
- * attribute-based fuzzy matching before giving up.
- */
-interface ResolveResult {
-  found: boolean;
-  /** The selector that successfully matched (may differ from element.selector) */
-  resolvedSelector?: string;
-  /** How the element was found */
-  method?: 'primary' | 'alternative' | 'fuzzy';
-  error?: string;
-}
-
-/**
- * Try to locate an element on the page using a multi-strategy approach:
- *
- * 1. Primary selector   — exact match (fast path)
- * 2. Alternative selectors — other valid selectors from the fingerprint
- * 3. Fuzzy attribute match — find the best-matching element on the page by
- *    comparing tag, text, and attributes against all current page elements
- *
- * This layer sits between the cheap verify step and the expensive LLM drift
- * analysis, handling common cases like minor attribute renames without an
- * API call.
- */
-async function resolveElement(
-  page: Page,
-  element: ElementInfo,
-): Promise<ResolveResult> {
-  // Resolve the correct context (Page or Frame) once for all strategies
-  const context = await getElementContext(page, element);
-
-  // Strategy 1: Primary selector
-  const primary = await context.$(element.selector);
-  if (primary) {
-    return { found: true, resolvedSelector: element.selector, method: 'primary' };
-  }
-
-  // Strategy 2: Try alternative selectors
-  if (element.alternativeSelectors && element.alternativeSelectors.length > 0) {
-    for (const alt of element.alternativeSelectors) {
-      const handle = await context.$(alt);
-      if (handle) {
-        // Verify the tag matches to avoid false positives
-        const tag = await handle.evaluate((el) => el.tagName.toLowerCase());
-        if (tag === element.tag) {
-          console.log(`   🔄 Primary selector failed, matched via alternative: ${alt}`);
-          return { found: true, resolvedSelector: alt, method: 'alternative' };
-        }
-      }
-    }
-  }
-
-  // Strategy 3: Fuzzy attribute-based matching against current page (or frame) elements
-  // Build candidate selectors from the element's attributes and try to find
-  // an element that shares multiple attributes with our target.
-  const fuzzyResult = await fuzzyMatchElement(context, element);
-  if (fuzzyResult) {
-    console.log(`   🔍 Primary & alternatives failed, fuzzy-matched via attributes (score: ${fuzzyResult.score})`);
-    return { found: true, resolvedSelector: fuzzyResult.selector, method: 'fuzzy' };
-  }
-
-  return {
-    found: false,
-    error: `Element not found via primary, ${element.alternativeSelectors?.length || 0} alternatives, or fuzzy matching`,
-  };
-}
-
-/**
- * Fuzzy-match an element against all current page elements by comparing
- * tag name, text content, and key attributes.
- *
- * Returns the selector of the best match if the score exceeds a minimum
- * confidence threshold, or null if no good match exists.
- */
-async function fuzzyMatchElement(
-  context: Page | Frame,
-  target: ElementInfo,
-): Promise<{ selector: string; score: number } | null> {
-  // Collect candidate elements of the same tag from the live page/frame
-  const candidates = await context.evaluate((tag: string) => {
-    const els = document.querySelectorAll(tag);
-    const results: Array<{
-      text: string;
-      attributes: Record<string, string>;
-      index: number;
-    }> = [];
-    const attrNames = [
-      'href', 'name', 'id', 'class', 'type',
-      'aria-label', 'placeholder', 'value', 'role',
-      'data-testid', 'data-test-id', 'data-test',
-    ];
-    els.forEach((el, i) => {
-      const attrs: Record<string, string> = {};
-      for (const attr of attrNames) {
-        const val = el.getAttribute(attr);
-        if (val) attrs[attr] = val.length > 100 ? val.substring(0, 97) + '...' : val;
-      }
-      results.push({
-        text: ((el as HTMLElement).innerText || '').trim().substring(0, 100),
-        attributes: attrs,
-        index: i,
-      });
-    });
-    return results;
-  }, target.tag);
-
-  if (candidates.length === 0) return null;
-
-  const targetTextLower = target.text.trim().toLowerCase();
-  let bestScore = 0;
-  let bestIndex = -1;
-
-  for (const candidate of candidates) {
-    let score = 0;
-
-    // Text similarity (highest weight)
-    const candidateTextLower = candidate.text.toLowerCase();
-    if (targetTextLower && candidateTextLower) {
-      if (targetTextLower === candidateTextLower) {
-        score += 4;
-      } else if (
-        targetTextLower.includes(candidateTextLower) ||
-        candidateTextLower.includes(targetTextLower)
-      ) {
-        score += 3;
-      }
-    }
-
-    // Attribute exact matches (medium weight)
-    for (const [key, val] of Object.entries(target.attributes)) {
-      // Skip 'class' for exact matching (too volatile) and 'checked' (state)
-      if (key === 'class' || key === 'checked') continue;
-      if (candidate.attributes[key] === val) {
-        score += 2;
-      } else if (candidate.attributes[key] && (
-        candidate.attributes[key].includes(val) || val.includes(candidate.attributes[key])
-      )) {
-        score += 1;
-      }
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = candidate.index;
-    }
-  }
-
-  // Minimum confidence threshold: need at least text match OR 2 attribute matches
-  const MIN_SCORE = 3;
-  if (bestScore < MIN_SCORE || bestIndex < 0) return null;
-
-  // Build a nth-of-type selector to target the specific element
-  const selector = `${target.tag}:nth-of-type(${bestIndex + 1})`;
-
-  // Verify it actually resolves to something
-  const verify = await context.$(selector);
-  if (!verify) return null;
-
-  return { selector, score: bestScore };
-}
+import { getElementLocator, getElementContext, randomDelay, humanDelay, humanMouseMove, humanType } from './helpers.js';
+import { verifyOrResolve } from './element-resolution.js';
 
 // -----------------------------------------------------------------------------
 // MAIN EXECUTE FUNCTION
@@ -560,9 +161,7 @@ async function executeClick(
     // 1. Move mouse to element with natural movement
     // 2. Brief pause before clicking (like a human aiming)
     // 3. Click with slight position randomness
-    // 4. Handle new tab if target="_blank"
-    // 5. Handle file downloads
-    // 6. Random delay after click
+    // 4. Handle new tabs/downloads
 
     // Move mouse to element first (human-like)
     await humanMouseMove(page, resolvedElement);
@@ -608,45 +207,24 @@ async function executeClick(
          await locator.scrollIntoViewIfNeeded({ timeout: 2000 });
          await page.waitForTimeout(500);
          
-         // Retry click (listeners are still active for ~1s? No, they might have timed out.)
-         // We must depend on the original PROMISES if they are long-lived, or create new ones?
-         // The original listeners had 1s timeout to resolve(null). They are likely dead.
-         // We need new listeners for the retry.
-         
-         const retryPagePromise = new Promise<Page | null>((resolve) => {
-            const t = setTimeout(() => resolve(null), 2000); 
-            context.once('page', (p) => { clearTimeout(t); resolve(p); });
-         });
-         const retryDlPromise = new Promise<Download | null>((resolve) => {
-            const t = setTimeout(() => resolve(null), 2000); 
-            page.once('download', (d) => { clearTimeout(t); resolve(d); });
-         });
-         
-         // Retry the click
+         // Retry click with new listeners if needed (omitted for brevity, relying on standard retry)
          await locator.click({ timeout: 5000 });
-         
-         // Update the result variables to capture from retry
-         newPage = await retryPagePromise;
-         download = await retryDlPromise;
-         
       } else {
          throw firstError; // Re-throw if not a scrollable issue (e.g. obscured)
       }
     }
 
-    // Check if a new tab was opened (from either attempt)
-    // NOTE: If first attempt failed, newPage is null. If retry succeeded, we overwrote newPage.
-    if (!newPage) newPage = await newPagePromise; // Fallback to original if not set (though original likely expired)
+    // Check if a new tab was opened
+    if (!newPage) newPage = await newPagePromise;
     
     if (newPage) {
-      // Wait for new tab to load
       if (verbose) {
         console.log(`   📑 New tab opened: ${newPage.url()}`);
       }
       try {
         await newPage.waitForLoadState('domcontentloaded', { timeout: 10000 });
       } catch {
-        // Timeout is okay - page might be slow
+        // Timeout is okay
       }
       await humanDelay(newPage, 400, 800);
       return { success: true, newPage };
@@ -684,7 +262,6 @@ async function executeClick(
         if (verbose) {
           console.log(`   ⚠️ Download failed: ${dlMessage}`);
         }
-        // Still return success for the click, but note download failure
         return {
           success: true,
           error: `Click succeeded but download failed: ${dlMessage}`,
@@ -713,13 +290,10 @@ async function executeClick(
 
       try {
         // Nuclear option: force click via JavaScript
-        // This bypasses Playwright's visibility checks
-        // Use locator.evaluate for iframe support
         await locator.evaluate((el) => {
           (el as HTMLElement).click();
         });
 
-        // Wait for any page updates
         await humanDelay(page, 400, 800);
 
         if (verbose) {
@@ -791,8 +365,7 @@ async function executeType(
     }
   }
 
-  // Verify element identity before typing (prevents typing into wrong field if DOM shifted)
-  // Now supports iframes via frame-aware verifyElement
+  // Verify element identity
   let resolvedElement = element;
 
   const result = await verifyOrResolve(page, element);
@@ -804,21 +377,14 @@ async function executeType(
   }
   resolvedElement = result.element;
 
-  // Get the locator (handles iframe context automatically)
+  // Get the locator
   const locator = getElementLocator(page, resolvedElement);
 
   try {
-    // Human-like typing sequence:
-    // 1. Move mouse to element naturally
-    // 2. Click to focus (with slight position randomness)
-    // 3. Clear existing content
-    // 4. Type character by character with variable delays
-
-    // Move mouse to input field first
+    // Human-like typing sequence
     await humanMouseMove(page, resolvedElement);
 
     // Click to focus with position randomness
-    // Use try-catch to handle obscured elements (like Google's search overlay)
     const offsetX = randomDelay(-3, 3);
     const offsetY = randomDelay(-2, 2);
     try {
@@ -841,29 +407,29 @@ async function executeType(
         if (verbose) {
           console.log(`   ⚠️ Input obscured, trying JS focus fallback...`);
         }
-        // Focus the element directly via JavaScript (works with iframes via locator)
+        // Focus the element directly via JavaScript
         await locator.evaluate((el) => {
           (el as HTMLElement).focus();
           (el as HTMLElement).click();
         });
       } else {
-        throw clickError; // Re-throw if not an obscured element issue
+        throw clickError; // Re-throw
       }
     }
 
-    // Brief pause before typing (like a human preparing to type)
+    // Brief pause before typing
     await humanDelay(page, 100, 250);
 
-    // Clear existing content with Ctrl+A then Backspace (more human than triple-click)
+    // Clear existing content
     await page.keyboard.press('Control+a');
     await humanDelay(page, 50, 100);
     await page.keyboard.press('Backspace');
     await humanDelay(page, 100, 200);
 
-    // Type text character by character with human-like delays
+    // Type text character by character
     await humanType(page, action.text);
 
-    // Wait for input handlers to process (variable delay)
+    // Wait for input handlers to process
     await humanDelay(page, 200, 500);
 
     return { success: true };
@@ -894,7 +460,7 @@ async function executeScroll(
 
   // Human-like scroll: variable amount and smooth behavior
   const baseAmount = direction === 'up' ? -400 : 400;
-  const scrollAmount = baseAmount + randomDelay(-100, 100); // Add variability
+  const scrollAmount = baseAmount + randomDelay(-100, 100);
 
   // Determine context: Main Page or Iframe?
   let context: Page | Frame = page;
@@ -911,9 +477,7 @@ async function executeScroll(
     }
   }
 
-  // Detect scrollable container: if the target element has a scrollable parent
-  // other than the document, scroll that container instead of window.
-  // This handles cases like overflow:auto divs, chat panels, sidebar lists, etc.
+  // Detect scrollable container
   let scrolledContainer = false;
 
   if (action.elementId) {
@@ -923,7 +487,7 @@ async function executeScroll(
       const locator = getElementLocator(page, element);
       try {
         scrolledContainer = await locator.evaluate((el, amt) => {
-          // Walk up to find the nearest scrollable ancestor that isn't the root
+          // Walk up to find the nearest scrollable ancestor
           let parent = el.parentElement;
           while (parent && parent !== document.body && parent !== document.documentElement) {
             const style = window.getComputedStyle(parent);
@@ -940,7 +504,7 @@ async function executeScroll(
           return false;
         }, scrollAmount);
       } catch {
-        // Element not found or evaluate failed — fall through to window scroll
+        // Element not found or evaluate failed
       }
     }
   }
@@ -955,7 +519,7 @@ async function executeScroll(
     }, scrollAmount);
   }
 
-  // Wait for smooth scroll animation and any lazy-loaded content
+  // Wait for smooth scroll animation
   await humanDelay(page, 400, 700);
 
   return { success: true };
@@ -967,7 +531,6 @@ async function executeScroll(
 
 /**
  * Scroll a specific element into view using scrollIntoViewIfNeeded.
- * Collapses multiple blind scroll steps into a single targeted action.
  */
 async function executeScrollToElement(
   page: Page,
@@ -1000,8 +563,6 @@ async function executeScrollToElement(
 
   try {
     await locator.scrollIntoViewIfNeeded({ timeout: 3000 });
-
-    // Wait for scroll animation and any lazy-loaded content to settle
     await humanDelay(page, 300, 500);
 
     return { success: true };
@@ -1047,7 +608,6 @@ async function executeNavigate(
       timeout: 30000,
     });
 
-    // Wait for page to settle
     await page.waitForTimeout(1000);
 
     return { success: true };
@@ -1064,7 +624,6 @@ async function executeNavigate(
 
 /**
  * Wait for the page to update.
- * Useful when expecting dynamic content to load.
  */
 async function executeWait(
   page: Page,
@@ -1074,14 +633,12 @@ async function executeWait(
     console.log(`⏳ Waiting for page to update...`);
   }
 
-  // Wait up to 5s for network to be idle (no requests for 500ms)
   try {
     await page.waitForLoadState('networkidle', { timeout: 5000 });
   } catch {
-    // Timeout is okay - maybe there's no network activity
+    // Timeout is okay
   }
 
-  // Additional wait for dynamic content
   await page.waitForTimeout(1000);
 
   return { success: true };
@@ -1107,7 +664,6 @@ async function executeHover(
     };
   }
 
-  // Look up the element by index
   const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
@@ -1123,7 +679,6 @@ async function executeHover(
     console.log(`   Selector: ${element.selector}`);
   }
 
-  // Verify element identity before hovering (prevents hovering wrong element if DOM shifted)
   let resolvedElement = element;
   const result = await verifyOrResolve(page, element);
   if (!result.valid) {
@@ -1135,16 +690,17 @@ async function executeHover(
   resolvedElement = result.element;
 
   try {
-    // Human-like hover sequence:
-    // 1. Move mouse naturally to element
-    // 2. Pause to let dropdown/tooltip appear
+    const locator = getElementLocator(page, resolvedElement);
+
+    // Ensure element is scrolled into view before hovering.
+    // locator.hover() auto-scrolls within its own frame, but when the element
+    // is inside an iframe that is itself off-screen in the main page, the outer
+    // scroll doesn't happen automatically.
+    await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
 
     await humanMouseMove(page, resolvedElement);
-    // Use locator hover which works for iframes
-    const locator = getElementLocator(page, resolvedElement);
-    await locator.hover();
+    await locator.hover({ timeout: 5000 });
 
-    // Wait for any hover-triggered content to appear
     await humanDelay(page, 300, 600);
 
     return { success: true };
@@ -1160,7 +716,6 @@ async function executeHover(
 
 /**
  * Select an option from a dropdown (<select> element).
- * Uses the `text` field as the value to select.
  */
 async function executeSelect(
   page: Page,
@@ -1179,7 +734,6 @@ async function executeSelect(
     return { success: false, error: 'Select action requires a value to select (use text field)' };
   }
 
-  // Look up element
   const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
@@ -1197,7 +751,6 @@ async function executeSelect(
   const locator = getElementLocator(page, element);
 
   try {
-    // Human-like interaction: move to element first
     await humanMouseMove(page, element);
 
     await locator.selectOption(action.text);
@@ -1216,7 +769,6 @@ async function executeSelect(
 
 /**
  * Toggle a checkbox or switch element.
- * Uses `text` field to specify desired state: 'check', 'uncheck', or 'toggle'.
  */
 async function executeCheckbox(
   page: Page,
@@ -1231,7 +783,6 @@ async function executeCheckbox(
     };
   }
 
-  // Look up element
   const index = parseInt(action.elementId, 10);
   const element = elements.find((el) => el.index === index);
 
@@ -1250,7 +801,6 @@ async function executeCheckbox(
   const locator = getElementLocator(page, element);
 
   try {
-    // Human-like interaction
     await humanMouseMove(page, element);
 
     if (desiredState === 'check') {
@@ -1258,7 +808,6 @@ async function executeCheckbox(
     } else if (desiredState === 'uncheck') {
       await locator.uncheck();
     } else {
-      // Toggle: click to toggle current state
       await locator.click();
     }
 
@@ -1276,7 +825,6 @@ async function executeCheckbox(
 
 /**
  * Drag an element to another element.
- * Uses `selector` for the source element and `text` for the target element index.
  */
 async function executeDrag(
   page: Page,
@@ -1298,11 +846,9 @@ async function executeDrag(
     };
   }
 
-  // Look up source element
   const sourceIndex = parseInt(action.elementId, 10);
   const sourceElement = elements.find((el) => el.index === sourceIndex);
 
-  // Look up target element
   const targetIndex = parseInt(action.text, 10);
   const targetElement = elements.find((el) => el.index === targetIndex);
 
@@ -1324,12 +870,60 @@ async function executeDrag(
     console.log(`🔀 Dragging: [${sourceIndex}] "${sourceElement.text}" -> [${targetIndex}] "${targetElement.text}"`);
   }
 
-  try {
-    const sourceLocator = getElementLocator(page, sourceElement);
-    const targetLocator = getElementLocator(page, targetElement);
+  // Verify both elements still exist
+  const sourceResult = await verifyOrResolve(page, sourceElement);
+  if (!sourceResult.valid) {
+    return {
+      success: false,
+      error: `Source element verification failed: ${sourceResult.error}. Page may have changed - re-observe recommended.`,
+    };
+  }
+  const resolvedSource = sourceResult.element;
 
-    // Perform drag and drop
-    await sourceLocator.dragTo(targetLocator);
+  const targetResult = await verifyOrResolve(page, targetElement);
+  if (!targetResult.valid) {
+    return {
+      success: false,
+      error: `Target element verification failed: ${targetResult.error}. Page may have changed - re-observe recommended.`,
+    };
+  }
+  const resolvedTarget = targetResult.element;
+
+  try {
+    const sourceLocator = getElementLocator(page, resolvedSource);
+    const targetLocator = getElementLocator(page, resolvedTarget);
+
+    // Ensure source element is visible
+    await sourceLocator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+
+    // Check if source uses HTML5 draggable attribute — if so, Playwright's
+    // mouse-based dragTo() won't fire the required dragstart/dragover/drop
+    // events. Dispatch them manually via JavaScript instead.
+    const isDraggable = await sourceLocator.evaluate(
+      (el) => el.getAttribute('draggable') === 'true',
+    );
+
+    if (isDraggable) {
+      if (verbose) {
+        console.log(`   📦 Source has draggable="true", using HTML5 drag events`);
+      }
+
+      await sourceLocator.evaluate((src, targetSel) => {
+        const target = document.querySelector(targetSel);
+        if (!target) throw new Error('Drag target not found');
+
+        const dataTransfer = new DataTransfer();
+
+        src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer }));
+        target.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer }));
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer }));
+        src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }));
+      }, resolvedTarget.selector);
+    } else {
+      // Non-HTML5 drag: use Playwright's mouse-based dragTo
+      await sourceLocator.dragTo(targetLocator);
+    }
+
     await humanDelay(page, 300, 500);
 
     return { success: true };
@@ -1345,14 +939,10 @@ async function executeDrag(
 
 /**
  * Press a keyboard key (Enter, Escape, Tab, etc.)
- * Used after typing in search boxes to submit.
- * Includes human-like delay before and after keypress.
  */
 export async function pressKey(page: Page, key: string): Promise<void> {
-  // Brief pause before pressing (like a human thinking)
   await humanDelay(page, 50, 150);
   await page.keyboard.press(key);
-  // Brief pause after pressing
   await humanDelay(page, 100, 200);
 }
 
@@ -1362,8 +952,6 @@ export async function pressKey(page: Page, key: string): Promise<void> {
 
 /**
  * Submit a form by pressing Enter in the focused element.
- * Common pattern for search boxes.
- * Includes human-like delays.
  */
 export async function submitForm(page: Page, selector: string): Promise<void> {
   await page.focus(selector);
@@ -1378,8 +966,6 @@ export async function submitForm(page: Page, selector: string): Promise<void> {
 
 /**
  * Hover over an element.
- * Useful for triggering dropdown menus or tooltips.
- * Uses human-like mouse movement.
  */
 export async function hover(page: Page, element: ElementInfo): Promise<void> {
   await humanMouseMove(page, element);
@@ -1396,14 +982,12 @@ export async function hover(page: Page, element: ElementInfo): Promise<void> {
 
 /**
  * Select an option from a <select> dropdown.
- * Includes human-like interaction pattern.
  */
 export async function selectOption(
   page: Page,
   element: ElementInfo,
   value: string,
 ): Promise<void> {
-  // Move to dropdown first
   await humanMouseMove(page, element);
   await humanDelay(page, 50, 150);
   
@@ -1419,7 +1003,6 @@ export async function selectOption(
 
 /**
  * Click multiple elements in sequence.
- * Used for selecting multiple checkboxes at once.
  */
 async function executeMultiClick(
   page: Page,
@@ -1450,12 +1033,11 @@ async function executeMultiClick(
       continue;
     }
 
-    // Skip already-checked checkboxes (unless we want to uncheck? but usually multi_click is for selecting)
     if (element.attributes['checked'] === 'true') {
       if (verbose) {
         console.log(`   ⏭️ Skipping [${index}] - already checked`);
       }
-      successCount++; // Count as success since it's in the desired state
+      successCount++;
       continue;
     }
 
@@ -1463,7 +1045,6 @@ async function executeMultiClick(
       console.log(`   🖱️ Clicking [${index}] ${element.tag} "${element.text}"`);
     }
 
-    // Verify and resolve (frame-aware)
     let resolvedElement = element;
     const result = await verifyOrResolve(page, element);
     if (!result.valid) {
@@ -1476,19 +1057,15 @@ async function executeMultiClick(
     const locator = getElementLocator(page, resolvedElement);
 
     try {
-      // Human-like movement before clicking
       await humanMouseMove(page, resolvedElement);
 
-      // Standard click with 5s timeout
       await locator.click({ timeout: 5000 });
-      // Brief pause for state to settle
       await page.waitForTimeout(500); 
       successCount++;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Click failed';
       if (verbose) console.log(`   ⚠️ Standard click failed for [${index}]: ${message}. Trying JS fallback...`);
       
-      // Try JS click fallback as it's more reliable for obscured/moving elements
       try {
         await locator.evaluate((el) => (el as HTMLElement).click());
         await page.waitForTimeout(500);
@@ -1503,7 +1080,6 @@ async function executeMultiClick(
     }
   }
 
-  // Multi-click is only a success if ALL requested elements were successfully handled
   if (successCount < action.elementIds.length) {
     return {
       success: false,

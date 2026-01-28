@@ -219,8 +219,8 @@ export async function requestIntervention(
       if (context.thinkResult?.type === 'ACTION') {
         const action = context.thinkResult.action;
         console.log(`\n${colors.yellow}⚡ Proposed Action: ${action.type.toUpperCase()}${colors.reset}`);
-        if (action.selector)
-          console.log(`   Target: Element [${action.selector}]`);
+        if (action.elementId)
+          console.log(`   Target: Element [${action.elementId}]`);
         if (action.text) console.log(`   Text: "${action.text}"`);
         console.log(`   Reason: ${action.reason}`);
       }

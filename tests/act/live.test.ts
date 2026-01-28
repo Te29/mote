@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { launchBrowser, navigateTo, closeBrowser } from '../../src/browser.js';
 import { observe } from '../../src/observe.js';
-import { executeAction, pressKey } from '../../src/act.js';
+import { executeAction, pressKey } from '../../src/act/index.js';
 import type { Action } from '../../src/types/index.js';
 import type { Page } from 'playwright';
 
@@ -50,7 +50,7 @@ describe('Act Module - Live Browser Tests', () => {
     if (searchInput) {
       const typeAction: Action = {
         type: 'type',
-        selector: searchInput.index.toString(),
+        elementId: searchInput.index.toString(),
         text: 'Mote browser automation',
         reason: 'Test typing into search box',
       };
@@ -82,7 +82,7 @@ describe('Act Module - Live Browser Tests', () => {
     if (button) {
       const clickAction: Action = {
         type: 'click',
-        selector: button.index.toString(),
+        elementId: button.index.toString(),
         reason: 'Test clicking a button',
       };
 

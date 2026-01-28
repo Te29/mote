@@ -10,7 +10,7 @@ import type { Preset, Goal, PageState } from '../../src/types/index.js';
 // Mock Modules
 vi.mock('../../src/observe.js');
 vi.mock('../../src/reason.js');
-vi.mock('../../src/act.js');
+vi.mock('../../src/act/index.js');
 vi.mock('../../src/interaction.js');
 vi.mock('../../src/browser.js');
 vi.mock('../../src/utils/debug.js', () => ({
@@ -48,7 +48,7 @@ describe('Explore vs Execute Mode', () => {
     // Default mocks for generic helpers
     vi.spyOn(checkModule, 'validateSessionPlan').mockReturnValue({ valid: true, errors: [] });
     
-    const actModule = await import('../../src/act.js');
+    const actModule = await import('../../src/act/index.js');
     vi.spyOn(actModule, 'executeAction').mockResolvedValue({ success: true });
     
     // Default mock for interaction
