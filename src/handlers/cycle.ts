@@ -210,10 +210,17 @@ export async function handleCycleEnd(
             ctx.services.llmClient,
             ctx.interventionMetrics,
             {
+              tokenMarkdown: ctx.tokenMarkdown,
+              tokenElements: ctx.tokenElements,
+              tokenMaxElements: ctx.tokenMaxElements,
+              tokenHistory: ctx.tokenHistory,
+            },
+            {
               point: 'TERMINAL',
               previousResult: thinkResult,
               instruction,
-            }
+            },
+            ctx.customSystemPrompt,
           );
           if (newResult.type === 'ACTION') {
             return {

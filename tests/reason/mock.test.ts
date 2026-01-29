@@ -75,8 +75,8 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
-
+            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
+            
             expect(result.type).toBe('ACTION');
             if (result.type === 'ACTION') {
                 expect(result.action.type).toBe('click');
@@ -97,7 +97,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
+            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('GOAL_SUCCESS');
             if (result.type === 'GOAL_SUCCESS') {
@@ -114,7 +114,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
+            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('FAIL');
         });
@@ -135,7 +135,7 @@ describe('Reason Module', () => {
             
             mockCreate.mockResolvedValue(invalidResponse);
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
+            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('FAIL');
             expect(mockCreate).toHaveBeenCalledTimes(3); // Should have retried
@@ -172,7 +172,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics);
+            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('ACTION');
             expect(mockCreate).toHaveBeenCalledTimes(2);

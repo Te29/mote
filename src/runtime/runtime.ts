@@ -55,6 +55,10 @@ export interface RuntimeSettings {
   verbose: boolean;
   maxSteps: number;
   stepPause: number;
+  tokenMarkdown: number;
+  tokenElements: number;
+  tokenMaxElements: number;
+  tokenHistory: number;
 }
 
 /**

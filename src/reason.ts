@@ -37,6 +37,7 @@ import {
   buildSimpleQuestionPrompt,
   type InterventionMetrics,
   type Intervention,
+  type PromptTokenLimits,
 } from './prompt.js';
 import { logPromptToFile } from './utils/debug.js';
 
@@ -292,6 +293,7 @@ export async function think(
   history: StepResult[],
   client: OpenAI,
   interventionMetrics: InterventionMetrics,
+  limits: PromptTokenLimits,
   intervention?: Intervention,
   customSystemPrompt?: string,
 ): Promise<ThinkResult> {
@@ -304,8 +306,8 @@ export async function think(
     tracker,
     history,
     interventionMetrics,
+    limits,
     intervention,
-    undefined, // limits
     customSystemPrompt,
   );
 

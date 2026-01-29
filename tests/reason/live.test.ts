@@ -106,6 +106,7 @@ describe('Reason Module - Live LLM Tests', () => {
             [],
             client,
             mockInterventionMetrics,
+            { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 },
         );
 
         expect(['ACTION', 'GOAL_SUCCESS', 'FAIL', 'REPLAN', 'RETRY_PERCEPTION']).toContain(result.type);
@@ -132,6 +133,7 @@ describe('Reason Module - Live LLM Tests', () => {
             [],
             client,
             mockInterventionMetrics,
+            { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 },
             {
                 point: 'ACTION',
                 previousResult: initialResult,

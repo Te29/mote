@@ -62,6 +62,12 @@ export async function handleReason(
           ctx.services.llmClient,
           ctx.interventionMetrics,
           {
+            tokenMarkdown: ctx.tokenMarkdown,
+            tokenElements: ctx.tokenElements,
+            tokenMaxElements: ctx.tokenMaxElements,
+            tokenHistory: ctx.tokenHistory,
+          },
+          {
              point: 'REPLAN', // Using REPLAN context implies "Change of plans"
              previousResult: { type: 'REPLAN', reason: 'User Intervention' }, // Dummy prev result
              instruction: ctx.runtime.pendingUserInstruction
@@ -252,6 +258,12 @@ export async function handleReason(
     ctx.history,
     ctx.services.llmClient,
     ctx.interventionMetrics,
+    {
+      tokenMarkdown: ctx.tokenMarkdown,
+      tokenElements: ctx.tokenElements,
+      tokenMaxElements: ctx.tokenMaxElements,
+      tokenHistory: ctx.tokenHistory,
+    },
     undefined, // intervention
     ctx.customSystemPrompt,
   );
@@ -368,10 +380,17 @@ export async function handleReason(
             ctx.services.llmClient,
             ctx.interventionMetrics,
             {
+              tokenMarkdown: ctx.tokenMarkdown,
+              tokenElements: ctx.tokenElements,
+              tokenMaxElements: ctx.tokenMaxElements,
+              tokenHistory: ctx.tokenHistory,
+            },
+            {
               point: 'REPLAN',
               previousResult: { type: 'REPLAN', reason },
               instruction: "Don't replan. Continue with current approach.",
-            }
+            },
+            ctx.customSystemPrompt,
           );
           if (newResult.type === 'ACTION') {
             return {

@@ -11,6 +11,7 @@ import type {
   StepResult,
   PageState,
   EngagementMode,
+  ExecutionStep,
 } from './index.js';
 import type { InterventionMetrics } from '../prompt.js';
 import type { AgentServices } from './services.js';
@@ -49,7 +50,7 @@ export interface AgentSettings {
    * Used to guide execution.
    * Can be updated during adaptive execution.
    */
-  executionPath?: import('./actions.js').ExecutionStep[];
+  executionPath?: ExecutionStep[];
 
   /**
    * Custom system prompt loaded from preset (if exists).
@@ -80,6 +81,26 @@ export interface AgentSettings {
    * IMMUTABLE - set once, never modified.
    */
   stepPause: number;
+
+  /**
+   * Max tokens for markdown content in prompts.
+   */
+  tokenMarkdown: number;
+
+  /**
+   * Max tokens for element list in prompts.
+   */
+  tokenElements: number;
+
+  /**
+   * Max number of elements to include in prompts.
+   */
+  tokenMaxElements: number;
+
+  /**
+   * Max tokens for history steps in prompts.
+   */
+  tokenHistory: number;
 }
 
 /**

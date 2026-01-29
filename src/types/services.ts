@@ -19,7 +19,7 @@ import type {
   ResolvedConfig,
   // LLMConfig removed
 } from './index.js';
-import type { InterventionMetrics, Intervention } from '../prompt.js';
+import type { InterventionMetrics, Intervention, PromptTokenLimits } from '../prompt.js';
 import type { DriftAnalysisResult } from '../reason.js';
 
 // =============================================================================
@@ -194,6 +194,7 @@ export interface ReasonService {
     history: StepResult[],
     client: OpenAI,
     metrics: InterventionMetrics,
+    limits: PromptTokenLimits,
     intervention?: Intervention,
     customSystemPrompt?: string,
   ): Promise<ThinkResult>;

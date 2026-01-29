@@ -44,6 +44,10 @@ function extractSettings(config: ResolvedConfig): RuntimeSettings {
     verbose: config.verbose,
     maxSteps: config.maxSteps,
     stepPause: config.stepPause,
+    tokenMarkdown: config.tokenMarkdown,
+    tokenElements: config.tokenElements,
+    tokenMaxElements: config.tokenMaxElements,
+    tokenHistory: config.tokenHistory,
   };
 }
 

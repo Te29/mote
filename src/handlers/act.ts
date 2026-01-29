@@ -81,10 +81,17 @@ export async function handleAct(
         ctx.services.llmClient,
         ctx.interventionMetrics,
         {
+          tokenMarkdown: ctx.tokenMarkdown,
+          tokenElements: ctx.tokenElements,
+          tokenMaxElements: ctx.tokenMaxElements,
+          tokenHistory: ctx.tokenHistory,
+        },
+        {
           point: 'ACTION',
           previousResult: { type: 'ACTION', action },
           instruction: control.instruction,
-        }
+        },
+        ctx.customSystemPrompt,
       );
       if (modResult.type === 'ACTION') {
         return {
@@ -108,10 +115,17 @@ export async function handleAct(
         ctx.services.llmClient,
         ctx.interventionMetrics,
         {
+          tokenMarkdown: ctx.tokenMarkdown,
+          tokenElements: ctx.tokenElements,
+          tokenMaxElements: ctx.tokenMaxElements,
+          tokenHistory: ctx.tokenHistory,
+        },
+        {
           point: 'ACTION',
           previousResult: { type: 'ACTION', action },
           instruction: response.reason || 'Try a different approach',
-        }
+        },
+        ctx.customSystemPrompt,
       );
       if (newResult.type === 'ACTION') {
         return {

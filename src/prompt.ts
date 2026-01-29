@@ -62,18 +62,7 @@ export type PromptTokenLimits = Pick<
  * Reads from environment variables with fallback to sensible defaults.
  * Balanced for ~4300 total tokens in the situation prompt.
  */
-export const DEFAULT_PROMPT_LIMITS: PromptTokenLimits = {
-  tokenMarkdown: parseInt(
-    process.env.LLM_PROMPT_MARKDOWN_TOKENS || '1500',
-    10,
-  ),
-  tokenElements: parseInt(
-    process.env.LLM_PROMPT_ELEMENTS_TOKENS || '2000',
-    10,
-  ),
-  tokenMaxElements: parseInt(process.env.LLM_PROMPT_MAX_ELEMENTS || '50', 10),
-  tokenHistory: parseInt(process.env.LLM_PROMPT_HISTORY_TOKENS || '200', 10),
-};
+
 
 // -----------------------------------------------------------------------------
 // TOKEN COUNTING
@@ -610,8 +599,8 @@ export function buildExecutionPrompt(
   tracker: SessionTracker,
   history: StepResult[],
   interventionMetrics: InterventionMetrics,
+  limits: PromptTokenLimits,
   intervention?: Intervention,
-  limits: PromptTokenLimits = DEFAULT_PROMPT_LIMITS,
   customSystemPrompt?: string,
 ): BuildPromptResult {
 
