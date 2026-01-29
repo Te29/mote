@@ -8,7 +8,7 @@ import type {
   AgentStateReason,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
-import type { Action, WebAction } from '../types/actions.js';
+import type { Action, WebAction, ExecutionStep } from '../types/actions.js';
 import { createTimestamp } from '../types/session.js';
 import { logVariable } from '../utils/debug.js';
 import { shouldIntervene, requestIntervention, processInterventionControl } from '../interaction.js';
@@ -33,222 +33,277 @@ export async function handleReason(
   // 1. Elements match exactly -> Use cached action (No LLM)
   // 2. Elements don't match -> Drift Analysis -> Adapt or Terminate
   
-  if (
-    ctx.executionPath &&
-    ctx.runtime.currentExecutionStepIndex < ctx.executionPath.length
-  ) {
-    const currentStep = ctx.executionPath[ctx.runtime.currentExecutionStepIndex];
-    const { targetCssSelector: cssSelector, expectedPageState, action: cachedAction } = currentStep;
+  // ---------------------------------------------------------------------------
+  // EXECUTION PATH LOGIC (Fast Path & Blueprint)
+  // ---------------------------------------------------------------------------
+  // If we have a preset execution path (Blueprint), we follow it.
+  // Supports linear steps and basic loops via executionPointer.
 
-    console.log(`⚡ Checking Execution Path (Step ${ctx.runtime.currentExecutionStepIndex + 1}/${ctx.executionPath.length})`);
-
-    // ----------------------
-    // 0. USER INTERVENTION CHECK
-    // ----------------------
-    // If the user interrupted and provided an instruction (e.g. "Do X instead"),
-    // we treat this as a FORCED ADAPTATION. We execute the user's wish *instead*
-    // of the cached step, effectively "adapting" the path at this point.
+  if (ctx.executionPath && ctx.runtime.executionPointer) {
+    const ptr = ctx.runtime.executionPointer;
+    const unitIndex = ptr[0];
     
-    if (ctx.runtime.pendingUserInstruction) {
-       console.log(`🗣️ Handling User Instruction: "${ctx.runtime.pendingUserInstruction}"`);
-       
-       // Use LLM to translate natural language instruction into an Action
-       const adaptationResult = await ctx.services.reason.think(
-          state.pageState,
-          ctx.goal,
-          ctx.preset,
-          ctx.tracker,
-          ctx.history,
-          ctx.services.llmClient,
-          ctx.interventionMetrics,
-          {
-            tokenMarkdown: ctx.tokenMarkdown,
-            tokenElements: ctx.tokenElements,
-            tokenMaxElements: ctx.tokenMaxElements,
-            tokenHistory: ctx.tokenHistory,
-          },
-          {
-             point: 'REPLAN', // Using REPLAN context implies "Change of plans"
-             previousResult: { type: 'REPLAN', reason: 'User Intervention' }, // Dummy prev result
-             instruction: ctx.runtime.pendingUserInstruction
-          },
-          ctx.customSystemPrompt
-       );
+    // Safety check
+    if (unitIndex < ctx.executionPath.units.length) {
+      const unit = ctx.executionPath.units[unitIndex];
+      let currentStep: ExecutionStep | null = null;
 
-       // Clear the pending instruction
-       ctx.runtime.pendingUserInstruction = undefined;
-
-       if (adaptationResult.type === 'ACTION') {
-          console.log(`🛠️ User-adapted action: ${adaptationResult.action.reason}`);
-          ctx.runtime.hadAdaptations = true;
-          return {
-            phase: 'ACT',
-            cycleIndex: state.cycleIndex,
-            action: adaptationResult.action,
-            pageState: state.pageState,
-          };
-       }
-       
-       // If LLM couldn't generate an action (e.g. it wanted to replan or failed),
-       // we fall back to standard behavior (which might be Drift Analysis or Full Think).
-       // However, since the user *explicitly* asked for something, falling back to 
-       // the cached path (which they interrupted) seems wrong.
-       // We should probably treat non-Action results as "Path Broken" -> Full Think?
-       // For now, let's fall through to the standard path check.
-       console.warn('⚠️ User instruction did not result in an immediate action. Falling back to standard flow.');
-    }
-
-    // ----------------------
-    // 1. EXACT MATCH CHECK
-    // ----------------------
-    // CODE-LEVEL CHECK: Does the target element exist in current page state?
-    const targetFound = state.pageState.elements.some(
-      (el) => el.selector === cssSelector
-    );
-
-    if (targetFound) {
-      console.log(`✓ Exact match found for selector: ${cssSelector}`);
-      return {
-        phase: 'ACT',
-        cycleIndex: state.cycleIndex,
-        action: cachedAction,
-        pageState: state.pageState,
-      };
-    }
-
-    // ----------------------
-    // 1b. ALTERNATIVE SELECTOR CHECK
-    // ----------------------
-    // Before expensive LLM drift analysis, check if any element on the page
-    // has the target selector as one of its alternatives, or if the expected
-    // element's alternatives match any current element's primary selector.
-    const altMatch = state.pageState.elements.find(
-      (el) => el.alternativeSelectors?.includes(cssSelector)
-    );
-
-    if (altMatch) {
-      console.log(`🔄 Target found via alternative selector on element [${altMatch.index}]: ${altMatch.selector}`);
-      // Update the cached action to use the matched element's index
-      const adaptedAction: Action = {
-        ...cachedAction,
-        elementId: String(altMatch.index),
-      };
-      // Update execution path in-memory for self-healing persistence
-      currentStep.targetCssSelector = altMatch.selector;
-      currentStep.action = adaptedAction;
-      ctx.runtime.hadAdaptations = true;
-      return {
-        phase: 'ACT',
-        cycleIndex: state.cycleIndex,
-        action: adaptedAction,
-        pageState: state.pageState,
-      };
-    }
-
-    // Also check: does the expected element exist in the cached state with alternatives,
-    // and does any of those alternatives match a current page element?
-    const expectedElement = expectedPageState.elements.find(
-      (el) => el.selector === cssSelector
-    );
-    if (expectedElement?.alternativeSelectors) {
-      for (const altSelector of expectedElement.alternativeSelectors) {
-        const match = state.pageState.elements.find(
-          (el) => el.selector === altSelector || el.alternativeSelectors?.includes(altSelector)
-        );
-        if (match) {
-          console.log(`🔄 Target found via expected element's alternative: ${altSelector} → element [${match.index}]`);
-          const adaptedAction: Action = {
-            ...cachedAction,
-            elementId: String(match.index),
-          };
-          currentStep.targetCssSelector = match.selector;
-          currentStep.action = adaptedAction;
-          ctx.runtime.hadAdaptations = true;
-          return {
-            phase: 'ACT',
-            cycleIndex: state.cycleIndex,
-            action: adaptedAction,
-            pageState: state.pageState,
-          };
+      // 1. RESOLVE CURRENT STEP (Handle Loops)
+      if (unit.type === 'step') {
+        currentStep = unit.step;
+      } else if (unit.type === 'loop') {
+        // Basic Loop Support: Check where we are in the loop
+        if (ptr.length === 1) {
+          // Just entered loop - Initialize
+          console.log(`🔄 Entering Loop [${unit.loop.loopId}]`);
+          ptr.push(0); // Start at step 0
         }
-      }
-    }
+        
+        const loopStepIndex = ptr[1];
+        if (loopStepIndex < unit.loop.steps.length) {
+          currentStep = unit.loop.steps[loopStepIndex];
+        } else {
+          // End of loop iteration
+          const loopId = unit.loop.loopId;
+          const currentIteration = ctx.runtime.loopStates[loopId]?.iteration || 1;
+          console.log(`🔄 Loop [${loopId}] iteration ${currentIteration} complete.`);
 
-    // DRIFT ANALYSIS: Elements don't match, verify if we can adapt
-    console.log(`⚠️ Target mismatch (primary + alternatives). Analyzing drift...`);
-    const driftResult = await ctx.services.reason.evaluateDrift(
-      expectedPageState,
-      state.pageState,
-      cachedAction,
-      ctx.services.llmClient
-    );
+          let shouldContinue = false;
 
-    // BINARY DECISION: Adapt, Fallback, or Terminate
-    if (driftResult.decision === 'technical_error') {
-      console.warn(`⚠️ Drift Analysis Technical Failure: ${driftResult.reason}. Falling back to autonomous reasoning.`);
-      ctx.executionPath = undefined;
-      // We fall through to the full LLM reasoning logic below
-    } else if (driftResult.decision === 'cannot_complete') {
-      const message = `Execution path broken: ${driftResult.reason}. Please exit and generate a new preset for this stage.`;
-      console.error(`❌ ${message}`);
-      return {
-        phase: 'TERMINATED',
-        success: false,
-        message,
-      };
-    } else if (driftResult.decision === 'can_proceed') {
-      if (driftResult.adaptedAction) {
-        console.log(`🛠️ Adapted action: ${driftResult.reason}`);
-        ctx.runtime.hadAdaptations = true;
+          // 1. Check Fixed Iterations
+          if (unit.loop.iterations) {
+            if (currentIteration < unit.loop.iterations) {
+              shouldContinue = true;
+            } else {
+              console.log(`🛑 Max fixed iterations (${unit.loop.iterations}) reached.`);
+            }
+          } 
+          
+          // 2. Check Dynamic Condition (if no fixed iterations or combined?)
+          // Usually loopCondition implies "while". If both exist, maybe AND/OR? 
+          // For now, let's treat explicit 'iterations' as a hard limit (for-loop), 
+          // and loopCondition as a while-clause.
+          if (unit.loop.loopCondition) {
+            const cond = unit.loop.loopCondition;
+            
+            // Safety Break
+            const maxSafety = cond.maxIterationsSafety || 10;
+            if (currentIteration >= maxSafety) {
+              console.warn(`🛑 Safety limit (${maxSafety}) reached for dynamic loop.`);
+              shouldContinue = false;
+            } else {
+              // Evaluate Condition
+              switch (cond.type) {
+                case 'element_exists': {
+                  const exists = state.pageState.elements.some(e => e.selector === cond.selector);
+                  shouldContinue = exists;
+                  console.log(`❓ Loop condition (element_exists: ${cond.selector}) = ${exists}`);
+                  break;
+                }
+                case 'element_missing': {
+                  const exists = state.pageState.elements.some(e => e.selector === cond.selector);
+                  shouldContinue = !exists;
+                  console.log(`❓ Loop condition (element_missing: ${cond.selector}) = ${!exists}`);
+                  break;
+                }
+                case 'custom_script':
+                  console.warn('⚠️ Custom script loop conditions not yet supported in fast-path.');
+                  shouldContinue = false; 
+                  break;
+              }
+            }
+          }
 
-        const adaptedAction: Action = {
-          type: driftResult.adaptedAction.type as WebAction,
-          elementId: driftResult.adaptedAction.elementId,
-          text: driftResult.adaptedAction.text,
-          reason: driftResult.adaptedAction.reason,
-        };
-
-        // Update execution path in-memory so self-healing persists for save
-        currentStep.action = adaptedAction;
-        if (adaptedAction.elementId) {
-          // Resolve ephemeral elementId to persistent targetCssSelector
-          const matchedEl = state.pageState.elements.find(e => String(e.index) === adaptedAction.elementId);
-          if (matchedEl) {
-             currentStep.targetCssSelector = matchedEl.selector;
+          if (shouldContinue) {
+             console.log(`🔄 Continuing loop [${loopId}] -> Iteration ${currentIteration + 1}`);
+             ctx.runtime.loopStates[loopId] = { iteration: currentIteration + 1 };
+             ptr[1] = 0; // Reset to first step of loop
+             // Recursive call to execute first step immediately
+             return handleReason(state, ctx);
+          } else {
+            console.log(`✅ Loop complete. Exiting.`);
+            // Cleanup state? Keep for history?
+            // delete ctx.runtime.loopStates[loopId]; 
+            ptr.pop(); // Remove step index
+            ptr[0]++;  // Advance unit index
+            // Recursive call to next unit
+            return handleReason(state, ctx);
           }
         }
-
-        return {
-          phase: 'ACT',
-          cycleIndex: state.cycleIndex,
-          action: adaptedAction,
-          pageState: state.pageState,
-        };
-      } else {
-        // No adaptation needed (minor drift but same action valid)
-        console.log(`✓ Drift accepted, proceeding with cached action: ${driftResult.reason}`);
-        return {
-          phase: 'ACT',
-          cycleIndex: state.cycleIndex,
-          action: cachedAction,
-          pageState: state.pageState,
-        };
       }
+
+      if (currentStep) {
+        const { targetElementSelector: cssSelector, expectedPageState, action: cachedAction, stepId } = currentStep;
+        
+        console.log(`⚡ Checking Blueprint Step: ${currentStep.description} [${stepId}]`);
+
+        // ----------------------
+        // 0. USER INTERVENTION / FORCED ADAPTATION
+        // ----------------------
+        if (ctx.runtime.pendingUserInstruction) {
+           console.log(`🗣️ Handling User Instruction: "${ctx.runtime.pendingUserInstruction}"`);
+           
+           // Perform adaptation reasoning
+           const adaptationResult = await ctx.services.reason.think(
+              state.pageState,
+              ctx.goal,
+              ctx.preset,
+              ctx.tracker,
+              ctx.history,
+              ctx.services.llmClient,
+              ctx.interventionMetrics,
+              {
+                tokenMarkdown: ctx.tokenMarkdown,
+                tokenElements: ctx.tokenElements,
+                tokenMaxElements: ctx.tokenMaxElements,
+                tokenHistory: ctx.tokenHistory,
+              },
+              {
+                point: 'REPLAN',
+                previousResult: { type: 'REPLAN', reason: 'User Intervention' },
+                instruction: ctx.runtime.pendingUserInstruction
+              },
+              ctx.customSystemPrompt
+           );
+    
+           ctx.runtime.pendingUserInstruction = undefined;
+    
+           if (adaptationResult.type === 'ACTION') {
+              console.log(`🛠️ User-adapted action: ${adaptationResult.action.reason}`);
+              ctx.runtime.hadAdaptations = true;
+              return {
+                phase: 'ACT',
+                cycleIndex: state.cycleIndex,
+                action: adaptationResult.action,
+                pageState: state.pageState,
+                stepId, 
+                globalIndex: unitIndex
+              };
+           }
+           if (adaptationResult.type === 'REPLAN') {
+              // User instruction triggered a replan
+              return { phase: 'OBSERVE', cycleIndex: state.cycleIndex };
+           }
+           console.warn('⚠️ User instruction did not result in immediate action, falling back to blueprint.');
+        }
+
+        // ----------------------
+        // 1. IF STEP HAS NO ACTION (Verify/Wait)
+        // ----------------------
+        if (!cachedAction) {
+           console.log(`ℹ️ Step has no cached action. Performing verification/wait.`);
+           // If verification passes (implied by reaching here in strict mode, or check expectedPageState)
+           // Return a wait action to complete the step.
+           return {
+              phase: 'ACT',
+              cycleIndex: state.cycleIndex,
+              action: { type: 'wait', reason: currentStep.description || 'Verified step' },
+              pageState: state.pageState,
+              stepId, 
+              globalIndex: unitIndex
+           };
+        }
+
+        // ----------------------
+        // 2. TARGET RESOLUTION (If selector exists)
+        // ----------------------
+        if (cssSelector) {
+           // A. EXACT MATCH
+           const targetFound = state.pageState.elements.some((el) => el.selector === cssSelector);
+           if (targetFound) {
+              console.log(`✓ Exact match: ${cssSelector}`);
+              return {
+                phase: 'ACT',
+                cycleIndex: state.cycleIndex,
+                action: cachedAction,
+                pageState: state.pageState,
+                stepId, 
+                globalIndex: unitIndex
+              };
+           }
+
+           // B. ALTERNATIVE MATCH (Simplified from previous)
+           const altMatch = state.pageState.elements.find((el) => el.alternativeSelectors?.includes(cssSelector));
+           if (altMatch) {
+              console.log(`🔄 Alt match: ${altMatch.selector}`);
+              const adaptedAction: Action = { ...cachedAction, elementId: String(altMatch.index) };
+              // Self-healing: Update blueprint in-memory
+              currentStep.targetElementSelector = altMatch.selector;
+              // Reset action elementId? cachedAction might have old one. 
+              // Important: We don't save back to file yet, just runtime patch.
+              ctx.runtime.hadAdaptations = true;
+              return {
+                phase: 'ACT',
+                cycleIndex: state.cycleIndex,
+                action: adaptedAction,
+                pageState: state.pageState,
+                stepId, 
+                globalIndex: unitIndex
+              };
+            }
+        
+            // C. DRIFT MATCH (Check expectedPageState if available)
+            if (expectedPageState) {
+                 console.log(`⚠️ Target mismatch. Analyzing drift for step ${stepId}...`);
+                 const driftResult = await ctx.services.reason.evaluateDrift(
+                   expectedPageState,
+                   state.pageState,
+                   cachedAction,
+                   ctx.services.llmClient
+                 );
+
+                 if (driftResult.decision === 'can_proceed') {
+                    const finalAction = driftResult.adaptedAction 
+                        ? { ...driftResult.adaptedAction, type: driftResult.adaptedAction.type as WebAction }
+                        : cachedAction;
+                        
+                    if (driftResult.adaptedAction) {
+                       ctx.runtime.hadAdaptations = true;
+                       // Self-healing
+                       if (finalAction.elementId) {
+                          const matchedEl = state.pageState.elements.find(e => String(e.index) === finalAction.elementId);
+                          if (matchedEl) currentStep.targetElementSelector = matchedEl.selector;
+                       }
+                    }
+                    
+                    return {
+                      phase: 'ACT',
+                      cycleIndex: state.cycleIndex,
+                      action: finalAction,
+                      pageState: state.pageState,
+                      stepId, 
+                      globalIndex: unitIndex
+                    };
+                 } else if (driftResult.decision === 'cannot_complete') {
+                    // Fail
+                    return { phase: 'TERMINATED', success: false, message: `Path broken: ${driftResult.reason}` };
+                 }
+                 // If technical_error, fall trough to Full Reasoning
+            } 
+            // If no expectedPageState, we can't do drift analysis. Fall through to Full Reasoning.
+        } else {
+           // Action but no selector (e.g. Scroll, Navigation, Wait)
+           // Execute unconditionally
+           return {
+              phase: 'ACT',
+              cycleIndex: state.cycleIndex,
+              action: cachedAction,
+              pageState: state.pageState,
+              stepId, 
+              globalIndex: unitIndex
+           };
+        }
+      }
+    } else {
+       // Unit index out of bounds - Path Complete
+       console.log(`✅ Execution path completed. Switching to LLM reasoning.`);
     }
   }
 
   // ---------------------------------------------------------------------------
   // REASONING LOGIC (LLM)
   // ---------------------------------------------------------------------------
-  // Fallback to full LLM reasoning if no execution path exists or path is finished.
-
-  // Log when execution path has been fully consumed
-  if (
-    ctx.executionPath &&
-    ctx.runtime.currentExecutionStepIndex >= ctx.executionPath.length
-  ) {
-    console.log(`✅ Execution path completed (${ctx.executionPath.length} steps). Switching to LLM reasoning.`);
-  }
+  // Standard LLM fallback...
 
   const thinkResult = await ctx.services.reason.think(
     state.pageState,

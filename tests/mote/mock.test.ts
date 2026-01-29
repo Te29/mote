@@ -32,7 +32,7 @@ vi.mock('fs'); // Mock fs to avoid file system reads for profile check
 describe('Mote Agent Loop (Mocked)', () => {
   // Common mock objects
   const mockPage = {
-    url: () => 'https://example.com',
+    url: vi.fn().mockReturnValue('about:blank'),
     waitForTimeout: vi.fn(),
     close: vi.fn(),
   } as any;
@@ -73,6 +73,8 @@ describe('Mote Agent Loop (Mocked)', () => {
     vi.spyOn(browser, 'launchBrowser').mockResolvedValue(mockBrowser);
     vi.spyOn(browser, 'navigateTo').mockResolvedValue();
     vi.spyOn(browser, 'closeBrowser').mockResolvedValue();
+
+    mockPage.url.mockReturnValue('about:blank');
 
     vi.spyOn(observe, 'observe').mockResolvedValue(mockPageState);
 

@@ -14,6 +14,7 @@ import type {
   Goal,
   Preset,
   ExecutionStep,
+  ExecutionPath,
   SessionTracker,
   StepResult,
   AgentState,
@@ -49,7 +50,7 @@ export interface RuntimeSettings {
   goal?: Goal;
   preset?: Preset;
   presetDir?: string;
-  executionPath?: ExecutionStep[];
+  executionPath?: ExecutionPath;
   customSystemPrompt?: string;
   engagementMode: EngagementMode;
   verbose: boolean;
@@ -100,18 +101,15 @@ export interface RuntimeResult {
 }
 
 // -----------------------------------------------------------------------------
-// RUNTIME EXECUTION FUNCTION
+// MAIN EXECUTION LOOP
 // -----------------------------------------------------------------------------
 
 /**
- * Execute the agent state machine loop.
- * Pure execution - no setup or cleanup.
- *
- * @param config - Runtime configuration with services and initial state
- * @returns Runtime result with success status and updated state
+ * Execute the agent state machine.
+ * Loops through states (Observing -> Reasoning -> Acting) until terminal state.
  */
 export async function executeRuntime(
-  config: RuntimeConfig
+  config: RuntimeConfig,
 ): Promise<RuntimeResult> {
   const {
     settings,
@@ -120,184 +118,153 @@ export async function executeRuntime(
     history,
     interventionMetrics,
     activePage,
-    startUrl,
   } = config;
+  
+  let { startUrl } = config;
 
-  // Mutable navigation URL (can change during retry loop)
-  let currentUrl = startUrl;
+  // Initial Context
+  // Create references to mutable state that will be shared across handlers
+  const activePageRef = activePage;
+  const hadAdaptations = false;
 
-  // Mutable state
-  let success = false;
-  let message = 'Agent stopped unexpectedly';
-  let finalUrl = startUrl;
-  let activePageRef = activePage;
-  let lastObservedUrl = '';
-  let lastPageState: PageState | null = null;
-  let hadAdaptations = false;
+  // Create Context Object
+  const ctx: AgentContext = {
+    // Settings (Immutable)
+    ...settings,
 
-  try {
-    // -------------------------------------------------------------------------
-    // Initial Navigation with Retry Loop
-    // -------------------------------------------------------------------------
+    // Services (Immutable)
+    services,
+
+    // Tracking State (Mutable)
+    tracker,
+    history,
+    interventionMetrics,
+
+    // Runtime state (mutable)
+    runtime: {
+      activePage: activePageRef,
+      lastObservedUrl: null, // Initialize as null
+      lastPageState: null,   // Initialize as null
+      hadAdaptations,
+      executionPointer: [0], // Start at top-level unit 0
+      loopStates: {},
+    },
+  };
+
+  // Initial State: NAVIGATION
+  // (Navigation is implicit in Phase 2 Bootstrap, but we verify here)
+  if (activePage.url() === 'about:blank') {
     let navSuccess = false;
-
     while (!navSuccess) {
       try {
-        await services.browser.navigateTo(activePageRef, currentUrl);
+        if (settings.verbose) console.log(`\nNavigating to: ${startUrl}`);
+        await services.browser.navigateTo(activePage, startUrl);
         navSuccess = true;
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        const response = await promptForUrlError(errorMsg);
-
-        switch (response.type) {
-          case 'quit':
-            return {
-              success: false,
-              message: 'User quit after navigation error',
-              tracker,
-              history,
-              finalUrl: currentUrl,
-              hadAdaptations,
-            };
-          case 'new_url':
-          case 'search':
-            if (response.url) {
-              currentUrl = response.url;
-            }
-            break;
-          case 'retry':
-            // Continue loop with same URL
-            break;
+        if (settings.verbose) console.error('Initial navigation failed:', error);
+        
+        const result = await promptForUrlError(error instanceof Error ? error.message : String(error));
+        
+        if (result.type === 'quit') {
+          return {
+            success: false,
+            message: `Initial navigation failed: ${error}`,
+            finalUrl: 'about:blank',
+            tracker,
+            history,
+            hadAdaptations: false,
+          };
         }
-        console.log('🔄 Retrying navigation...');
+        
+        if (result.type === 'new_url' || result.type === 'search') {
+           startUrl = result.url || startUrl; 
+        }
+        // If 'retry', loop continues with same startUrl
       }
     }
+  }
 
-    // -------------------------------------------------------------------------
-    // Start interrupt listener
-    // -------------------------------------------------------------------------
-    startInterruptListener();
+  // Start State Machine
+  // Initial state is CYCLE_START (Cycle 0)
+  let currentState: AgentState = {
+    phase: 'CYCLE_START',
+    cycleIndex: 0,
+  };
 
-    // =========================================================================
-    // STATE MACHINE LOOP
-    // =========================================================================
+  // Setup Interrupt Listener
+  startInterruptListener();
 
-    // Initialize state to first cycle
-    let state: AgentState = {
-      phase: 'CYCLE_START',
-      cycleIndex: getCurrentCycleIndex(tracker),
-    };
+  // ---------------------------------------------------------------------------
+  // STATE MACHINE LOOP
+  // ---------------------------------------------------------------------------
+  while (true) {
+    const previousState = currentState;
+    
+    // Log State Transition (Verbose)
+    // if (settings.verbose) console.log(`[State] ${previousState.phase}`);
 
-    // Ensure we have a valid starting cycle
-    if (state.cycleIndex < 0) {
-      state = {
-        phase: 'TERMINATED',
-        success: false,
-        message: 'No cycles to execute',
-      };
-    }
-
-    // Agent context for handlers
-    const ctx: AgentContext = {
-      // Immutable settings
-      ...settings,
-
-      // Core tracking (mutable)
-      tracker,
-      history,
-      interventionMetrics,
-
-      // Services (immutable references)
-      services,
-
-      // Runtime state (mutable)
-      runtime: {
-        activePage: activePageRef,
-        lastObservedUrl,
-        lastPageState,
-        hadAdaptations,
-        currentExecutionStepIndex: 0,
-      },
-    };
-
-    // Main state machine loop
-    while (state.phase !== 'TERMINATED') {
-      const oldPhase = state.phase;
-
-      // Route to appropriate handler based on current state
-      switch (state.phase) {
+    // Execute Handler based on current phase
+    try {
+      switch (currentState.phase) {
         case 'CYCLE_START':
-          state = await handleCycleStart(state, ctx);
+          currentState = await handleCycleStart(currentState, ctx);
           break;
 
         case 'OBSERVE':
-          state = await handleObserve(state, ctx);
+          currentState = await handleObserve(currentState, ctx);
           break;
 
         case 'REASON':
-          state = await handleReason(state, ctx);
+          currentState = await handleReason(currentState, ctx);
           break;
 
         case 'ACT':
-          state = await handleAct(state, ctx);
+          currentState = await handleAct(currentState, ctx);
           break;
 
         case 'CYCLE_END':
-          state = await handleCycleEnd(state, ctx);
+          currentState = await handleCycleEnd(currentState, ctx);
           break;
 
-        default:
-          // TypeScript exhaustiveness check
-          const _: never = state;
-          state = {
-            phase: 'TERMINATED',
-            success: false,
-            message: `Unknown state phase: ${JSON.stringify(state)}`,
+        case 'TERMINATED':
+          // Exit loop
+          stopInterruptListener();
+          return {
+            success: currentState.success,
+            message: currentState.message,
+            finalUrl: ctx.runtime.activePage.url(),
+            tracker: ctx.tracker,
+            history: ctx.history,
+            hadAdaptations: ctx.runtime.hadAdaptations,
           };
-          break;
+        
+        default:
+          throw new Error(`Unknown state phase: ${(currentState as any).phase}`);
       }
 
-      // Runtime validation: catch invalid state transitions early
-      validateTransition(oldPhase, state.phase);
+      // Validate Transition
+      validateTransition(previousState.phase, currentState.phase);
 
-      // Log state transitions for debugging
-      if (settings.verbose && state.phase !== 'TERMINATED') {
-        logVariable('STATE TRANSITION', {
-          phase: state.phase,
-          cycleIndex: 'cycleIndex' in state ? state.cycleIndex : null,
-        });
+      // Update Cycle Index logic is handled within handlers (e.g., ACT -> OBSERVE increments cycle)
+      // Verify consistency?
+      const expectedCycle = getCurrentCycleIndex(ctx.tracker);
+      if (currentState.phase !== 'TERMINATED' && currentState.cycleIndex !== expectedCycle) {
+        // Warn or correct? Handlers should manage this.
+        // reason.ts handles replanning which might reset cycles, so strict check might be flaky.
       }
+
+    } catch (error) {
+      // Global Error Handler for Runtime Loop
+      console.error('\n💥 Runtime Loop Error:', error);
+      stopInterruptListener();
+      return {
+        success: false,
+        message: `Runtime error: ${error instanceof Error ? error.message : String(error)}`,
+        finalUrl: ctx.runtime.activePage.url(),
+        tracker: ctx.tracker,
+        history: ctx.history,
+        hadAdaptations: ctx.runtime.hadAdaptations,
+      };
     }
-
-    // Extract final result from terminal state
-    if (state.phase === 'TERMINATED') {
-      success = state.success;
-      message = state.message;
-    }
-
-    // Update final URL and hadAdaptations from context
-    finalUrl = ctx.runtime.activePage.url();
-    hadAdaptations = ctx.runtime.hadAdaptations;
-
-    // Stop interrupt listener
-    stopInterruptListener();
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error';
-    console.error(`\n💥 Unexpected error: ${errorMessage}`);
-    message = `Unexpected error: ${errorMessage}`;
-    success = false;
-
-    // Ensure interrupt listener is stopped
-    stopInterruptListener();
   }
-
-  return {
-    success,
-    message,
-    finalUrl,
-    tracker,
-    history,
-    hadAdaptations,
-  };
 }

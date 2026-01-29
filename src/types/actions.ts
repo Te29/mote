@@ -111,42 +111,110 @@ export interface ThinkResultFail {
 }
 
 // -----------------------------------------------------------------------------
-// EXECUTION PATH (Cached Strategy)
+// EXECUTION PATH BLUEPRINT (Static Plan)
 // -----------------------------------------------------------------------------
-// A linear sequence of steps learned from a successful Explore run.
-// Used for fast-path execution.
+// A linear or nested sequence of steps defined in a preset.
+// This is the "Code" or "Recipe" the agent follows.
 
 /**
- * A single cached step in an execution path.
- * Contains both the expected condition and the action to take.
+ * Dynamic condition for loop continuation.
+ */
+export type LoopCondition =
+  | { type: 'element_exists' | 'element_missing'; selector: string; maxIterationsSafety?: number }
+  | { type: 'custom_script'; script: string; maxIterationsSafety?: number };
+
+export interface PromptRef {
+  /** Which preset's prompt file */
+  presetId: string;
+
+  /** Which prompt file inside the preset (usually one) */
+  file: 'main' | 'recovery' | 'analysis';
+
+  /** JSON path / key path inside the prompt file */
+  key: string;
+
+  /** Optional progressive layer (e.g. base + step override) */
+  variant?: string;
+}
+
+/** 
+ * Blueprint for a single step, independent of execution results.
+ * Defines WHAT to do, not what happened.
  */
 export interface ExecutionStep {
-  /** Unique ID for this step in the sequence */
+  /** Global unique ID */
   stepId: string;
-
+  
   /** Human-readable description */
   description: string;
-
-  /** 
-   * Expected URL (or pattern) for verification.
-   * Optional: Many tasks have dynamic URLs (session IDs, quiz IDs) that make strict matching unreliable.
-   */
+  
+  /** Optional URL constraint (wait for this URL before acting) */
   url?: string;
-
-  /**
-   * The state we expect to see before acting.
-   * Storing full PageState allows robust "Diff" later if needed.
+  
+  /** If true, URL match must be exact; otherwise partial/pattern */
+  isUrlFixed?: boolean;
+  
+  /** 
+   * CSS selector for the target element. 
+   * Optional because some steps might be purely reasoning/navigation without specific element interaction.
+   * or for dynamic element selection without fixed element info indicated. 
    */
-  expectedPageState: PageState;
-
-  /**
-   * The specific element we need for the next action.
-   * This is a selector string.
+  targetElementSelector?: string;
+  
+  /** 
+   * Action to execute.
+   * Optional because the step might be "Wait" or "Verify" without a browser action.
    */
-  targetCssSelector: string;
+  action?: Action;
+  
+  /**
+   * Page state expected before execution.
+   * Used for verification and self-healing.
+   */
+  expectedPageState?: PageState;
+  
+  /** Whether LLM reasoning is required for this step (vs fast-path deterministic) */
+  llmRequired?: boolean;
+  
+  /** Reference to a specific prompt template for this step */
+  customPromptRef?: PromptRef;
+}
 
-  /** The action to perform (Result of previous Reason step) */
-  action: Action;
+/** 
+ * Loop Block: A sequence of steps that repeats.
+ */
+export interface LoopBlock {
+  /** Global unique ID */
+  loopId: string;
+  
+  /** Hardcoded number of iterations (for-loop style) */
+  iterations?: number;
+  
+  /** Dynamic loop condition (while-loop style) */
+  loopCondition?: LoopCondition;
+  
+  /** Sequence of steps inside the loop */
+  steps: ExecutionStep[];
+}
+
+/** 
+ * ExecutionUnit: Unified sequential unit.
+ * Can be a single atomic step or a complex block (loop).
+ */
+export type ExecutionUnit =
+  | { type: 'step'; step: ExecutionStep }
+  | { type: 'loop'; loop: LoopBlock };
+
+/** 
+ * ExecutionPath: Blueprint layer.
+ * Arrangement of execution units in order.
+ */
+export interface ExecutionPath {
+  /** Global sequence guarantee */
+  units: ExecutionUnit[];
+  
+  /** Optional starting URL for this entire path */
+  startUrl?: string;
 }
 
 // -----------------------------------------------------------------------------

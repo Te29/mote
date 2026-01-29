@@ -61,6 +61,11 @@ export interface AgentStateAct {
   cycleIndex: number;
   action: Action;
   pageState: PageState;
+  
+  /** Blueprint tracking (optional, only if following a defined path or synthetic step) */
+  stepId?: string;
+  loopId?: string;
+  globalIndex?: number;
 }
 
 /** End of cycle with result */

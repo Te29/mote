@@ -4,7 +4,7 @@
 // Configuration for goals, presets, browser, LLM, and human-in-the-loop
 
 import type { SessionTracker } from './session.js';
-import type { ExecutionStep } from './actions.js';
+import type { ExecutionPath } from './actions.js';
 
 // -----------------------------------------------------------------------------
 // GOAL
@@ -94,7 +94,7 @@ export interface ResolvedConfig {
   // ===== Task Definition =====
   goal?: Goal;
   sessionPlan?: SessionTracker;
-  executionPath?: ExecutionStep[];
+  executionPath?: ExecutionPath;
   startUrl?: string;
 
   // ===== Browser Settings =====

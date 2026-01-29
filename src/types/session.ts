@@ -47,87 +47,137 @@ export function parseTimestamp(timestamp: string): Date {
 //                           ├── action?
 //                           └── stepDescription
 
-/**
- * A single step within a cycle.
- * Steps are discovered dynamically during execution.
- *
- * @example
- * { isCompleted: true, action: {...}, stepDescription: 'Selected answer B', pageContext: { title: 'Quiz', progress: 'Q3/5' } }
+// -----------------------------------------------------------------------------
+// SESSION TRACKER (Runtime State)
+// -----------------------------------------------------------------------------
+
+/** 
+ * DOM snapshot structure for metadata.
+ * captured at the moment of interaction.
  */
-export interface CycleStep {
-  /** Has this step been executed? */
-  isCompleted: boolean;
-
-  /** The action that was executed (filled after execution) */
-  action?: Action;
-
-  /** Human-readable description of what this step does/did */
-  stepDescription: string;
-
-  /** Key page context at time of step (topic, progress, etc.) */
-  pageContext?: PageContext;
+export interface ElementSnapshot {
+  tagName: string;
+  textContent?: string;
+  role?: string;
+  attributes?: Record<string, string>;
+  domPath?: string;
 }
 
-/**
- * One complete unit of the goal.
- *
- * Examples:
- * - "Complete 10 quiz sets" → 10 cycles (each quiz = 1 cycle)
- * - "Apply to 5 jobs" → 5 cycles (each application = 1 cycle)
- * - "Complete this quiz" → 1 cycle (the entire quiz)
+/** 
+ * Optional execution metadata (DOM/timing etc.) 
+ */
+export interface StepExecutionMeta {
+  /** Actually used selector (might differ from blueprint if self-healed) */
+  resolvedSelector?: string;
+  
+  /** DOM snapshot of the target */
+  elementSnapshot?: ElementSnapshot;
+  
+  /** Execution timing metrics (ms) */
+  timing?: {
+    waitForElement?: number;
+    actionDuration?: number;
+    totalStepTime?: number;
+  };
+}
+
+/** 
+ * Runtime single-step execution record.
+ * Mirrors ExecutionStep but contains results.
+ */
+export interface CycleStep {
+  /** Global sequence index (0, 1, 2...) */
+  globalIndex: number;
+  
+  /** Reference to the ExecutionStep ID from blueprint */
+  stepId: string;
+  
+  /** Reference to LoopBlock ID if inside a loop */
+  loopId?: string;
+  
+  /** Whether the step successfully completed */
+  isCompleted: boolean;
+  
+  /** The action that was actually executed */
+  action?: Action;
+  
+  /** Description of execution result */
+  stepDescription: string;
+  
+  /** Page snapshot at the time of execution */
+  pageContext?: PageContext;
+  
+  /** Detailed execution metadata */
+  executionMeta?: StepExecutionMeta;
+}
+
+/** 
+ * Single loop statistics.
+ * Tracks loop execution progress.
+ */
+export interface LoopStats {
+  /** ID of the LoopBlock */
+  loopId: string;
+  
+  /** Actual number of iterations completed */
+  iterations: number;
+  
+  /** List of conditions that were met to continue each iteration */
+  conditionsMet: string[];
+}
+
+/** 
+ * Cycle: One complete execution unit of the goal.
  */
 export interface Cycle {
   /** Has this entire cycle been completed? */
   isCompleted: boolean;
-
-  /** Steps within this cycle (grows dynamically) */
+  
+  /** Runtime step records */
   cycleSteps: CycleStep[];
+  
+  /** Loop statistics for loops within this cycle */
+  loopStats?: LoopStats[];
 }
 
 /**
- * Learned strategy from first cycle, used to compress prompts for repeat cycles.
- * Extracted after the first cycle completes successfully.
+ * Learned execution strategy, used for prompt compression / element learning
  */
 export interface CycleStrategy {
-  /** Short description of the repeating pattern */
+  /** Natural language description of loop pattern */
   pattern: string;
-
-  /** Typical step sequence observed in first cycle */
+  
+  /** Common step sequence */
   stepSequence: string[];
-
-  /** Key element types/patterns to look for */
+  
+  /** Common element patterns */
   keyElements: string[];
 }
 
 /**
- * Session tracker for both plan structure and live execution progress.
- * Created once at session start, updated throughout execution.
- *
- * Progress is computed from the structure:
- * - currentCycle = cycles.findIndex(c => !c.isCompleted)
- * - currentStep = cycle.cycleSteps.findIndex(s => !s.isCompleted)
- * - completedCycles = cycles.filter(c => c.isCompleted).length
+ * SessionTracker: Entire session runtime state.
+ * created once at session start, updated throughout execution.
  */
 export interface SessionTracker {
-  /** High-level summary of the goal */
+  /** High-level goal description */
   goalSummary: string;
-
+  
   /** Description of what one cycle accomplishes */
   cycleDescription: string;
-
-  /** All cycles (fixed count from initial analysis, steps grow dynamically) */
+  
+  /** Execution records of all cycles */
   cycles: Cycle[];
-
-  /** When the session started (ISO 8601 string) */
+  
+  /** Session start time (ISO string) */
   startedAt: string;
-
-  /** Last time the plan was updated (ISO 8601 string) */
+  
+  /** Last updated time (ISO string) */
   lastUpdatedAt: string;
-
-  /** Optional URL to navigate to at the beginning of each cycle */
+  
+  /** Starting URL for each cycle (optional) */
   cycleStartUrl?: string;
-
-  /** Learned strategy from first successful cycle (enables compressed prompts) */
+  
+  /** Learned execution strategy */
   cycleStrategy?: CycleStrategy;
 }
 

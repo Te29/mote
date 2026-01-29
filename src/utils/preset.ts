@@ -11,7 +11,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Preset, ExecutionStep } from '../types/index.js';
+import type {
+  Preset,
+  ExecutionStep,
+  ExecutionPath
+} from '../types/index.js';
 
 // Default presets directory relative to project root
 const PRESETS_DIR = path.join(process.cwd(), 'presets');
@@ -117,12 +121,12 @@ export function loadPresetFromPath(presetDir: string): Preset | null {
  * Load execution path from preset directory.
  * @param presetDir - Path to preset directory
  * @param executionPathRef - Reference from preset (e.g., "./execution-path.json")
- * @returns ExecutionStep array, or null if not found
+ * @returns ExecutionPath object, or null if not found
  */
 export function loadExecutionPath(
   presetDir: string,
   executionPathRef?: string,
-): ExecutionStep[] | null {
+): ExecutionPath | null {
   if (!executionPathRef) {
     return null;
   }
@@ -131,7 +135,7 @@ export function loadExecutionPath(
 
   try {
     const content = fs.readFileSync(executionPathFile, 'utf-8');
-    return JSON.parse(content) as ExecutionStep[];
+    return JSON.parse(content) as ExecutionPath;
   } catch {
     console.warn(`Warning: Could not load execution path from: ${executionPathFile}`);
     return null;
@@ -172,7 +176,7 @@ export function loadSystemPrompt(
  */
 export function savePreset(
   preset: Preset,
-  executionPath?: ExecutionStep[],
+  executionPath?: ExecutionPath,
   systemPrompt?: string,
   folderName?: string,
 ): string {
@@ -193,7 +197,7 @@ export function savePreset(
 
   // Save preset.json
   const presetCopy = { ...preset };
-  if (executionPath && executionPath.length > 0) {
+  if (executionPath && executionPath.units.length > 0) {
     presetCopy.executionPathRef = './execution-path.json';
   }
   if (systemPrompt) {
@@ -204,7 +208,7 @@ export function savePreset(
   fs.writeFileSync(presetFilePath, JSON.stringify(presetCopy, null, 2));
 
   // Save execution-path.json if provided
-  if (executionPath && executionPath.length > 0) {
+  if (executionPath && executionPath.units.length > 0) {
     const executionPathFile = path.join(presetDir, 'execution-path.json');
     fs.writeFileSync(executionPathFile, JSON.stringify(executionPath, null, 2));
   }

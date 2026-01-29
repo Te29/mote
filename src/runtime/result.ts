@@ -11,18 +11,18 @@ import type {
   Goal,
   Preset,
   ExecutionStep,
+  ExecutionPath,
   SessionTracker,
   StepResult,
   AgentResult,
   EngagementMode,
+  ExecutionUnit,
 } from '../types/index.js';
 import { getCompletedCycles } from '../types/index.js';
 import { shouldIntervene, promptForPresetSave } from '../interaction.js';
 import { savePreset } from '../utils/preset.js';
 
-// -----------------------------------------------------------------------------
-// TYPES
-// -----------------------------------------------------------------------------
+// ... (omitted)
 
 /**
  * Context for result assembly.
@@ -36,7 +36,7 @@ export interface ResultContext {
   tracker: SessionTracker;
   history: StepResult[];
   hadAdaptations: boolean;
-  executionPath?: ExecutionStep[];
+  executionPath?: ExecutionPath;
   preset?: Preset;
   presetDir?: string;
   customSystemPrompt?: string;
@@ -53,10 +53,10 @@ export interface ResultContext {
  * This enables self-healing: learned paths can be cached in presets.
  *
  * @param history - Array of successful step results from an Explore mode run
- * @returns Array of ExecutionStep objects suitable for preset.executionPath
+ * @returns ExecutionPath object suitable for preset.executionPath
  */
-export function extractPathFromHistory(history: StepResult[]): ExecutionStep[] {
-  return history
+export function extractPathFromHistory(history: StepResult[]): ExecutionPath {
+  const steps = history
     .filter((step) => step.action.type !== 'wait') // Skip wait actions
     .map((step, index) => {
       // Find the element that was targeted (in the BEFORE state, where it exists)
@@ -69,12 +69,16 @@ export function extractPathFromHistory(history: StepResult[]): ExecutionStep[] {
         stepId: `learned-${index + 1}`,
         description: step.action.reason || `Step ${index + 1}`,
         url: step.pageStateBefore.url,  // URL where we need to be to execute this action
-        targetCssSelector: targetElement?.selector || '',
+        targetElementSelector: targetElement?.selector || '',
         action: step.action,
         expectedPageState: step.pageStateBefore,  // State we expect BEFORE executing the action
-      };
+      } as ExecutionStep;
     })
-    .filter((step) => step.targetCssSelector !== '' && !/^\d+$/.test(step.targetCssSelector)); // Only include steps with valid, non-index selectors
+    .filter((step) => step.targetElementSelector !== '' && !/^\d+$/.test(step.targetElementSelector || '')); // Only include steps with valid, non-index selectors
+    
+    return {
+      units: steps.map(step => ({ type: 'step', step } as ExecutionUnit))
+    };
 }
 
 // -----------------------------------------------------------------------------
@@ -132,8 +136,8 @@ export async function assembleResult(
   if (success && history.length > 0 && (hadAdaptations || !executionPath)) {
     const learnedPath = extractPathFromHistory(history);
 
-    if (learnedPath.length > 0 && shouldIntervene(engagementMode, 'TERMINAL')) {
-      const saveResponse = await promptForPresetSave(preset, learnedPath.length);
+    if (learnedPath.units.length > 0 && shouldIntervene(engagementMode, 'TERMINAL')) {
+      const saveResponse = await promptForPresetSave(preset, learnedPath.units.length);
 
       switch (saveResponse.type) {
         case 'update':
@@ -157,7 +161,7 @@ export async function assembleResult(
           };
           const savedPath = savePreset(newPreset, learnedPath, customSystemPrompt, saveResponse.name);
           console.log(`\n💾 New preset saved to: ${savedPath}`);
-          console.log(`   Steps: ${learnedPath.length}`);
+          console.log(`   Steps: ${learnedPath.units.length}`);
           break;
         }
         case 'discard':

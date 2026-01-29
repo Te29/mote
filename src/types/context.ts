@@ -12,6 +12,7 @@ import type {
   PageState,
   EngagementMode,
   ExecutionStep,
+  ExecutionPath,
 } from './index.js';
 import type { InterventionMetrics } from '../prompt.js';
 import type { AgentServices } from './services.js';
@@ -50,7 +51,7 @@ export interface AgentSettings {
    * Used to guide execution.
    * Can be updated during adaptive execution.
    */
-  executionPath?: ExecutionStep[];
+  executionPath?: ExecutionPath;
 
   /**
    * Custom system prompt loaded from preset (if exists).
@@ -169,13 +170,18 @@ export interface AgentRuntimeState {
   hadAdaptations: boolean;
 
   /**
-   * Current index in the execution path (if executionPath exists).
-   * Used to track progress through the cached path.
-   * MUTATIONS:
-   * - act.ts: Increments after successful action (if following path)
-   * - reason.ts: Resets/Adjusts during drift handling? (Actually, usually just increments)
+   * Current pointer in the execution path.
+   * [unitIndex, stepIndex?]
+   * - [0] = 1st ExecutionUnit (Step or Loop)
+   * - [1, 2] = 2nd ExecutionUnit (Loop), 3rd step inside it
    */
-  currentExecutionStepIndex: number;
+  executionPointer: number[];
+  
+  /**
+   * Runtime state for active loops.
+   * Key: loopId, Value: { iteration: number }
+   */
+  loopStates: Record<string, { iteration: number }>;
 
   /**
    * Pending instruction from user intervention.

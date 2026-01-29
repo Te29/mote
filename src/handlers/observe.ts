@@ -93,15 +93,29 @@ export async function handleObserve(
   let targetSelectors: string[] | undefined;
   
   // If we are following an execution path, look for the specific target
-  if (
-    ctx.executionPath && 
-    ctx.runtime.currentExecutionStepIndex < ctx.executionPath.length
-  ) {
-    const currentStep = ctx.executionPath[ctx.runtime.currentExecutionStepIndex];
-    // Only use target selector if it exists
-    if (currentStep && currentStep.targetCssSelector) {
-      targetSelectors = [currentStep.targetCssSelector];
-      console.log(`🎯 Targeted Observation: Looking for "${currentStep.targetCssSelector}"`);
+  // If we are following an execution path, look for the specific target
+  if (ctx.executionPath && ctx.runtime.executionPointer) {
+    const ptr = ctx.runtime.executionPointer;
+    const unitIndex = ptr[0];
+
+    if (unitIndex < ctx.executionPath.units.length) {
+      const unit = ctx.executionPath.units[unitIndex];
+      let currentStep: any = null;
+
+      if (unit.type === 'step') {
+        currentStep = unit.step;
+      } else if (unit.type === 'loop' && ptr.length > 1) {
+         const stepIndex = ptr[1];
+         if (stepIndex < unit.loop.steps.length) {
+            currentStep = unit.loop.steps[stepIndex];
+         }
+      }
+
+      // Only use target selector if it exists
+      if (currentStep && currentStep.targetElementSelector) {
+        targetSelectors = [currentStep.targetElementSelector];
+        console.log(`🎯 Targeted Observation: Looking for "${currentStep.targetElementSelector}"`);
+      }
     }
   }
 

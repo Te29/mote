@@ -33,6 +33,7 @@ describe('Explore vs Execute Mode', () => {
       waitForTimeout: vi.fn(),
       evaluate: vi.fn(), 
       close: vi.fn(),
+      title: vi.fn().mockResolvedValue('Mock Title'),
     };
     
     // Mock Browser launch
@@ -120,14 +121,19 @@ describe('Explore vs Execute Mode', () => {
          startedAt: '', lastUpdatedAt: ''
       }
     };
-    const executionPath = [{
-      stepId: '1',
-      description: 'Cached Step 1',
-      url: 'https://example.com/test',
-      targetCssSelector: '#exact-btn',
-      action: { type: 'click' as const, elementId: '#exact-btn', reason: 'Cached Click' },
-      expectedPageState: {} as any
-    }];
+    const executionPath = {
+      units: [{
+        type: 'step' as const,
+        step: {
+          stepId: '1',
+          description: 'Cached Step 1',
+          url: 'https://example.com/test',
+          targetElementSelector: '#exact-btn',
+          action: { type: 'click' as const, elementId: '#exact-btn', reason: 'Cached Click' },
+          expectedPageState: {} as any
+        }
+      }]
+    };
 
     vi.spyOn(observeModule, 'observe').mockResolvedValue({
       url: 'https://example.com/test', title: 'Test', markdown: '',
@@ -201,12 +207,17 @@ describe('Explore vs Execute Mode', () => {
          startedAt: '', lastUpdatedAt: ''
       }
     };
-    const executionPath = [{
-      stepId: '1', description: 'Step needing adaptation', url: 'https://example.com',
-      targetCssSelector: '#old-btn',
-      action: { type: 'click' as const, elementId: '1', reason: 'Click button' },
-      expectedPageState: { url: 'https://example.com', title: 'Expected', markdown: '', elements: [] } as PageState
-    }];
+    const executionPath = {
+      units: [{
+        type: 'step' as const,
+        step: {
+          stepId: '1', description: 'Step needing adaptation', url: 'https://example.com',
+          targetElementSelector: '#old-btn',
+          action: { type: 'click' as const, elementId: '1', reason: 'Click button' },
+          expectedPageState: { url: 'https://example.com', title: 'Expected', markdown: '', elements: [] } as PageState
+        }
+      }]
+    };
 
     vi.spyOn(observeModule, 'observe').mockResolvedValue({
       url: 'https://example.com/updated', title: 'Test', markdown: '',

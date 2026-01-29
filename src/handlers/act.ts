@@ -193,11 +193,24 @@ export async function handleAct(
   // Record step in tracker
   const cycle = ctx.tracker.cycles[state.cycleIndex];
   if (cycle) {
-    cycle.cycleSteps.push({
+    const cycleStep = {
+      globalIndex: state.globalIndex ?? -1,
+      stepId: state.stepId ?? "unknown",
+      loopId: state.loopId,
       isCompleted: true,
       action: state.action,
       stepDescription: state.action.reason,
-    });
+      pageContext: {
+         url: ctx.runtime.activePage.url(),
+         title: await ctx.runtime.activePage.title().catch(() => "")
+      },
+      executionMeta: {
+        timing: {
+          actionDuration: 0, // Placeholder
+        }
+      }
+    };
+    cycle.cycleSteps.push(cycleStep);
     ctx.tracker.lastUpdatedAt = createTimestamp();
   }
 
@@ -216,13 +229,15 @@ export async function handleAct(
   if (result.success) {
     ctx.interventionMetrics.consecutiveFailures = 0;
     
-    // Increment execution step index if we are following a path
-    // We only increment if the action was part of the path logic (executionPath exists and index is valid)
-    if (
-      ctx.executionPath &&
-      ctx.runtime.currentExecutionStepIndex < ctx.executionPath.length
-    ) {
-      ctx.runtime.currentExecutionStepIndex++;
+    // Increment execution pointer if we are following a path
+    // Simple top-level increment for now - complex loop logic handled in REASON/Drift
+    if (ctx.executionPath && ctx.runtime.executionPointer.length === 1) {
+       // Only auto-increment if we are at top-level linear path
+       // Loops require more logic (checking conditions etc) which should happen in REASON
+       const currentIdx = ctx.runtime.executionPointer[0];
+       if (currentIdx < ctx.executionPath.units.length) {
+          ctx.runtime.executionPointer[0]++;
+       }
     }
   } else {
     ctx.interventionMetrics.consecutiveFailures++;
