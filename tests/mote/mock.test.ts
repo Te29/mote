@@ -6,7 +6,6 @@ import * as observe from '../../src/observe.js';
 import * as reason from '../../src/reason.js';
 import * as handlers from '../../src/handlers/index.js';
 import {
-  type ConfigInput,
   type SessionTracker,
   type CycleTracker,
   type PageState,
@@ -130,18 +129,15 @@ describe('Mote Agent Loop (Mocked)', () => {
   });
 
   it('should run a successful agent session', async () => {
-    const config: ConfigInput = {
-      goal: { name: 'Test', description: 'Test Description' },
-      startUrl: 'https://example.com',
-      engagementMode: 'autonomous',
-      stepPause: 0,
-      verbose: false,
-    };
-
-    // State machine flow: CYCLE_START -> OBSERVE -> REASON -> CYCLE_END -> TERMINATED
-    // Handlers are mocked in beforeEach
-
-    const result = await mote.runAgent(config);
+    const result = await mote.runAgent({
+      overrides: {
+        goal: { name: 'Test', description: 'Test Description' },
+        startUrl: 'https://example.com',
+        engagementMode: 'autonomous',
+        stepPause: 0,
+        verbose: false,
+      }
+    });
 
     expect(browser.launchBrowser).toHaveBeenCalled();
     expect(browser.navigateTo).toHaveBeenCalledWith(mockPage, 'https://example.com');
@@ -156,36 +152,28 @@ describe('Mote Agent Loop (Mocked)', () => {
   });
 
   it('should handle action execution loop', async () => {
-    const config: ConfigInput = {
-      goal: { name: 'Test Action', description: 'Test Action' },
-      startUrl: 'https://example.com',
-      engagementMode: 'autonomous',
-      stepPause: 0,
-      verbose: false,
-    };
+    // Override handleReason to return ACTION first, then GOAL_SUCCESS
+    vi.spyOn(handlers, 'handleReason').mockImplementationOnce(async (state: AgentStateReason) => ({
+      phase: 'ACT' as const,
+      cycleIndex: state.cycleIndex,
+      action: { type: 'click', elementId: '1', reason: 'Test click' },
+      pageState: state.pageState,
+    })).mockImplementationOnce(async (state: AgentStateReason) => ({
+      phase: 'CYCLE_END' as const,
+      cycleIndex: state.cycleIndex,
+      result: 'SUCCESS' as const,
+      detail: 'Done',
+    }));
 
-    // State machine flow:
-    // CYCLE_START -> OBSERVE -> REASON -> ACT -> OBSERVE -> REASON -> CYCLE_END -> TERMINATED
-    vi.spyOn(handlers, 'handleReason')
-      .mockResolvedValueOnce({
-        phase: 'ACT' as const,
-        cycleIndex: 0,
-        action: { type: 'click', elementId: '1', reason: 'Click it' },
-        pageState: mockPageState,
-      })
-      .mockResolvedValueOnce({
-        phase: 'CYCLE_END' as const,
-        cycleIndex: 0,
-        result: 'SUCCESS' as const,
-        detail: 'Done',
-      });
-
-    vi.spyOn(handlers, 'handleAct').mockResolvedValue({
-      phase: 'OBSERVE' as const,
-      cycleIndex: 0,
+    const result = await mote.runAgent({
+      overrides: {
+        goal: { name: 'Test Action', description: 'Test Action' },
+        startUrl: 'https://example.com',
+        engagementMode: 'autonomous',
+        stepPause: 0,
+        verbose: false,
+      }
     });
-
-    const result = await mote.runAgent(config);
 
     expect(handlers.handleObserve).toHaveBeenCalledTimes(2);
     expect(handlers.handleReason).toHaveBeenCalledTimes(2);
@@ -194,29 +182,23 @@ describe('Mote Agent Loop (Mocked)', () => {
   });
 
   it('should handle failures gracefully', async () => {
-    const config: ConfigInput = {
-      goal: { name: 'Test Fail', description: 'Fail Description' },
-      startUrl: 'https://example.com',
-      engagementMode: 'autonomous',
-      stepPause: 0,
-      verbose: false,
-    };
-
-    // State machine flow: CYCLE_START -> OBSERVE -> REASON -> CYCLE_END (FAILURE) -> TERMINATED
-    vi.spyOn(handlers, 'handleReason').mockResolvedValue({
+    // Override handleReason to return FAILURE
+    vi.spyOn(handlers, 'handleReason').mockImplementationOnce(async (state: AgentStateReason) => ({
       phase: 'CYCLE_END' as const,
-      cycleIndex: 0,
+      cycleIndex: state.cycleIndex,
       result: 'FAILURE' as const,
-      detail: 'Something went wrong',
-    });
+      detail: 'Failed as expected',
+    }));
 
-    vi.spyOn(handlers, 'handleCycleEnd').mockResolvedValue({
-      phase: 'TERMINATED' as const,
-      success: false,
-      message: 'Failed as expected',
+    const result = await mote.runAgent({
+      overrides: {
+        goal: { name: 'Test Fail', description: 'Fail Description' },
+        startUrl: 'https://example.com',
+        engagementMode: 'autonomous',
+        stepPause: 0,
+        verbose: false,
+      }
     });
-
-    const result = await mote.runAgent(config);
 
     expect(handlers.handleCycleEnd).toHaveBeenCalled();
     expect(result.success).toBe(false);
@@ -227,47 +209,45 @@ describe('Mote Agent Loop (Mocked)', () => {
      const originalEnv = process.env;
      process.env = { ...originalEnv, MAX_STEPS: '2' };
 
-     const config: ConfigInput = {
-      goal: { name: 'Test Max Steps', description: 'Loop forever' },
-      startUrl: 'https://example.com',
-      engagementMode: 'autonomous',
-      stepPause: 0,
-      verbose: false,
-     };
+     let observeCallCount = 0;
 
-     // Track step count - max steps is checked in OBSERVE handler
-     let observeCount = 0;
+     // Override handleObserve to track calls and terminate after 2
      vi.spyOn(handlers, 'handleObserve').mockImplementation(async (state: AgentStateObserve) => {
-        observeCount++;
-        if (observeCount >= 2) {
-          // Max steps reached - handleObserve returns TERMINATED
-          return {
-            phase: 'TERMINATED' as const,
-            success: false,
-            message: 'Reached maximum steps (2) without completing goal',
-          };
-        }
-        // Return REASON to continue
-        return {
-          phase: 'REASON' as const,
-          cycleIndex: state.cycleIndex,
-          pageState: mockPageState,
-        };
+       observeCallCount++;
+
+       // Terminate on second observe call (simulating maxSteps=2 check)
+       if (observeCallCount >= 2) {
+         return {
+           phase: 'TERMINATED' as const,
+           success: false,
+           message: `Reached maximum steps (2) without completing goal`,
+         };
+       }
+
+       return {
+         phase: 'REASON' as const,
+         cycleIndex: state.cycleIndex,
+         pageState: mockPageState,
+       };
      });
 
+     // Override handleReason to always return ACTION (infinite loop without maxSteps)
      vi.spyOn(handlers, 'handleReason').mockImplementation(async (state: AgentStateReason) => ({
-        phase: 'ACT' as const,
-        cycleIndex: state.cycleIndex,
-        action: { type: 'wait', reason: 'Waiting' },
-        pageState: mockPageState,
+       phase: 'ACT' as const,
+       cycleIndex: state.cycleIndex,
+       action: { type: 'click', elementId: '1', reason: 'Test click' },
+       pageState: state.pageState,
      }));
 
-     vi.spyOn(handlers, 'handleAct').mockImplementation(async (state: AgentStateAct) => ({
-        phase: 'OBSERVE' as const,
-        cycleIndex: state.cycleIndex,
-     }));
-
-     const result = await mote.runAgent(config);
+     const result = await mote.runAgent({
+      overrides: {
+        goal: { name: 'Test Max Steps', description: 'Loop forever' },
+        startUrl: 'https://example.com',
+        engagementMode: 'autonomous',
+        stepPause: 0,
+        verbose: false,
+      }
+     });
 
      process.env = originalEnv; // Restore env
 

@@ -139,6 +139,12 @@ describe('Explore vs Execute Mode', () => {
     });
 
     vi.spyOn(checkModule, 'createLLMClient').mockReturnValue({} as any);
+    vi.spyOn(checkModule, 'generatePlan').mockResolvedValue({
+      goalSummary: 'Test',
+      cycleDescription: 'Test Cycle',
+      cycles: [{ isCompleted: false, cycleSteps: [] }],
+      startedAt: '', lastUpdatedAt: ''
+    } as any);
     vi.spyOn(checkModule, 'think').mockResolvedValue({
         type: 'GOAL_SUCCESS', finalAnswer: 'Done'
     });
@@ -146,7 +152,8 @@ describe('Explore vs Execute Mode', () => {
     const result = await runAgent({
       fromPreset: preset,
       overrides: {
-        headless: true
+        headless: true,
+        startUrl: 'https://example.com'
       }
     });
 
@@ -172,6 +179,12 @@ describe('Explore vs Execute Mode', () => {
     });
 
     vi.spyOn(checkModule, 'createLLMClient').mockReturnValue({} as any);
+    vi.spyOn(checkModule, 'generatePlan').mockResolvedValue({
+      goalSummary: 'Test',
+      cycleDescription: 'Test Cycle',
+      cycles: [{ isCompleted: false, cycleSteps: [] }],
+      startedAt: '', lastUpdatedAt: ''
+    } as any);
     vi.spyOn(checkModule, 'think').mockResolvedValue({
        type: 'GOAL_SUCCESS', finalAnswer: 'Recovered'
     });
@@ -179,7 +192,8 @@ describe('Explore vs Execute Mode', () => {
     const result = await runAgent({
       fromPreset: preset,
       overrides: {
-        headless: true
+        headless: true,
+        startUrl: 'https://example.com'
       }
     });
 
@@ -218,6 +232,12 @@ describe('Explore vs Execute Mode', () => {
     });
 
     vi.spyOn(checkModule, 'createLLMClient').mockReturnValue({} as any);
+    vi.spyOn(checkModule, 'generatePlan').mockResolvedValue({
+      goalSummary: 'Test',
+      cycleDescription: 'Test Cycle',
+      cycles: [{ isCompleted: false, cycleSteps: [] }],
+      startedAt: '', lastUpdatedAt: ''
+    } as any);
     vi.spyOn(checkModule, 'think').mockResolvedValue({
        type: 'GOAL_SUCCESS', finalAnswer: 'Done'
     });
@@ -225,7 +245,8 @@ describe('Explore vs Execute Mode', () => {
     const result = await runAgent({
       fromPreset: preset,
       overrides: {
-        headless: true
+        headless: true,
+        startUrl: 'https://example.com'
       }
     });
 

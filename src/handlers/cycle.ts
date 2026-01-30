@@ -14,6 +14,8 @@ import { shouldIntervene, requestIntervention, processInterventionControl, check
 import { logVariable } from '../utils/debug.js';
 import { think } from '../reason.js';
 import { executeVerification } from '../utils/verification.js';
+import { saveCheckpoint, type SessionCheckpoint } from '../utils/checkpoint.js';
+import * as path from 'path';
 
 // -----------------------------------------------------------------------------
 // CYCLE START
@@ -32,6 +34,9 @@ export async function handleCycleStart(
   // Reset per-cycle intervention metrics
   ctx.interventionMetrics.replanCount = 0;
   ctx.interventionMetrics.reobserveCount = 0;
+
+  // Reset per-cycle drift tracking
+  ctx.runtime.currentCycleDrifts = [];
 
   // CYCLE_START Intervention
   if (shouldIntervene(ctx.engagementMode, 'CYCLE_START')) {
@@ -122,6 +127,65 @@ export async function handleCycleEnd(
   if (cycle) {
     cycle.isCompleted = true;
     ctx.tracker.lastUpdatedAt = createTimestamp();
+
+    // Analyze drift for this cycle
+    if (ctx.runtime.currentCycleDrifts.length > 0) {
+      const driftRecords = ctx.runtime.currentCycleDrifts;
+      const successfulAdaptations = driftRecords.filter(
+        (d) => d.resolutionMethod === 'alternative_match' || d.resolutionMethod === 'llm_adaptation'
+      ).length;
+      const failedAdaptations = driftRecords.filter((d) => d.resolutionMethod === 'failed').length;
+
+      // Calculate severity based on drift rate
+      const driftRate = driftRecords.length / Math.max(1, cycle.cycleSteps.length);
+      const severity: 'low' | 'medium' | 'high' =
+        driftRate > 0.3 ? 'high' : driftRate > 0.1 ? 'medium' : 'low';
+
+      cycle.driftAnalysis = {
+        totalDrifts: driftRecords.length,
+        successfulAdaptations,
+        failedAdaptations,
+        driftRecords,
+        severity,
+      };
+
+      console.log(
+        `📊 Drift Analysis: ${driftRecords.length} drifts detected (severity: ${severity})`
+      );
+
+      // Reset for next cycle
+      ctx.runtime.currentCycleDrifts = [];
+    }
+
+    // Generate cycle strategy from successful cycle (if not already generated)
+    if (state.result === 'SUCCESS' && !ctx.tracker.cycleStrategy && cycle.cycleSteps.length >= 3) {
+      console.log('🧠 Learning cycle strategy from successful execution...');
+
+      // Build minimal history from cycle steps for strategy generation
+      const cycleHistory = cycle.cycleSteps
+        .filter((step) => step.action)
+        .map((step) => ({
+          step: step.globalIndex,
+          action: step.action!,
+          success: step.isCompleted,
+          timestamp: ctx.tracker.lastUpdatedAt,
+        }));
+
+      try {
+        const strategy = await ctx.services.reason.generateStrategy(
+          cycleHistory,
+          ctx.services.llmClient
+        );
+
+        if (strategy) {
+          ctx.tracker.cycleStrategy = strategy;
+          console.log(`✓ Strategy learned: ${strategy.pattern}`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Strategy generation failed (non-fatal):', error);
+        // Continue execution - strategy is optional
+      }
+    }
   }
 
   // If this cycle failed, terminate
@@ -318,6 +382,38 @@ export async function handleCycleEnd(
   }
 
   // More cycles to go - start next one
+
+  // Save checkpoint if enabled and at checkpoint frequency
+  if (
+    ctx.enableCheckpointing &&
+    ctx.tracker.cycles.length % ctx.checkpointFrequency === 0
+  ) {
+    const sessionId =
+      ctx.goal?.name.toLowerCase().replace(/\s+/g, '-') ||
+      ctx.preset?.name.toLowerCase().replace(/\s+/g, '-') ||
+      'session';
+
+    const checkpoint: SessionCheckpoint = {
+      version: '1.0.0', // TODO: Import from package.json
+      timestamp: createTimestamp(),
+      sessionId,
+      tracker: ctx.tracker,
+      history: ctx.history,
+      startUrl: ctx.tracker.cycleStartUrl || ctx.startUrl || '',
+      lastUrl: ctx.runtime.activePage.url(),
+      goalDescription: ctx.goal?.description,
+      presetName: ctx.preset?.name,
+    };
+
+    try {
+      const filepath = saveCheckpoint(checkpoint);
+      console.log(`💾 Checkpoint saved: ${path.basename(filepath)}`);
+    } catch (error) {
+      console.warn('⚠️ Failed to save checkpoint:', error);
+      // Non-fatal - continue execution
+    }
+  }
+
   return {
     phase: 'CYCLE_START',
     cycleIndex: nextCycleIndex,

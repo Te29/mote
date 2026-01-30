@@ -176,7 +176,7 @@ export async function assembleResult(
     success,
     message,
     history,
-    plan: tracker,
+    sessionTracker: tracker,
     cyclesCompleted,
     duration,
     finalUrl,

@@ -174,6 +174,19 @@ export interface ReasonService {
   ): Promise<DriftAnalysisResult>;
 
   /**
+   * Generate cycle strategy from successful execution history.
+   * Used to optimize future cycles by learning patterns from completed actions.
+   *
+   * @param history - Step results from successful cycle
+   * @param client - OpenAI client
+   * @returns Learned strategy or undefined if generation fails
+   */
+  generateStrategy(
+    history: StepResult[],
+    client: OpenAI,
+  ): Promise<CycleStrategy | undefined>;
+
+  /**
    * Main reasoning function - decide what action to take next.
    * Analyzes current page state and history to determine next step.
    *

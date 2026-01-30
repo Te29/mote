@@ -34,7 +34,15 @@ describe('Reason Module', () => {
     const mockPlan: SessionPlan = {
         goalSummary: 'Test goal summary',
         cycleDescription: 'Test cycle',
-        cyclePlan: { units: [] }
+        cyclePlan: {
+            units: [{
+                type: 'step',
+                step: {
+                    stepId: 'test-step',
+                    description: 'Test step'
+                }
+            }]
+        }
     };
 
     const mockTracker: SessionTracker = {

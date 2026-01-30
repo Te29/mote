@@ -52,7 +52,13 @@ export async function handleReason(
         // Basic Loop Support: Check where we are in the loop
         if (ptr.length === 1) {
           // Just entered loop - Initialize
-          console.log(`🔄 Entering Loop [${unit.loop.loopId}]`);
+          const loopId = unit.loop.loopId;
+          console.log(`🔄 Entering Loop [${loopId}]`);
+          ctx.runtime.loopStates[loopId] = {
+            iteration: 1,
+            conditionsMet: [],
+            startedAt: createTimestamp(),
+          };
           ptr.push(0); // Start at step 0
         }
         
@@ -62,7 +68,17 @@ export async function handleReason(
         } else {
           // End of loop iteration
           const loopId = unit.loop.loopId;
-          const currentIteration = ctx.runtime.loopStates[loopId]?.iteration || 1;
+
+          // Ensure loop state has full structure (backward compatibility)
+          if (!ctx.runtime.loopStates[loopId] || !ctx.runtime.loopStates[loopId].conditionsMet) {
+            ctx.runtime.loopStates[loopId] = {
+              iteration: ctx.runtime.loopStates[loopId]?.iteration || 1,
+              conditionsMet: ctx.runtime.loopStates[loopId]?.conditionsMet || [],
+              startedAt: ctx.runtime.loopStates[loopId]?.startedAt || createTimestamp(),
+            };
+          }
+
+          const currentIteration = ctx.runtime.loopStates[loopId].iteration;
           console.log(`🔄 Loop [${loopId}] iteration ${currentIteration} complete.`);
 
           let shouldContinue = false;
@@ -110,6 +126,14 @@ export async function handleReason(
 
               shouldContinue = verifyResult.passed;
               console.log(`❓ Loop condition (${cond.verification.description || 'verification'}) = ${verifyResult.passed} [${verifyResult.method}]`);
+
+              // Record condition result
+              const conditionDescription = cond.verification.description || 'verification';
+              const conditionResult = verifyResult.passed ? 'PASSED' : 'FAILED';
+              ctx.runtime.loopStates[loopId].conditionsMet.push(
+                `Iteration ${currentIteration}: ${conditionDescription} - ${conditionResult}`
+              );
+
               if (verifyResult.error) {
                 console.log(`   Error: ${verifyResult.error}`);
               }
@@ -118,14 +142,40 @@ export async function handleReason(
 
           if (shouldContinue) {
              console.log(`🔄 Continuing loop [${loopId}] -> Iteration ${currentIteration + 1}`);
-             ctx.runtime.loopStates[loopId] = { iteration: currentIteration + 1 };
+             // Preserve condition history while incrementing iteration
+             const loopState = ctx.runtime.loopStates[loopId];
+             ctx.runtime.loopStates[loopId] = {
+               iteration: currentIteration + 1,
+               conditionsMet: loopState.conditionsMet,
+               startedAt: loopState.startedAt,
+             };
              ptr[1] = 0; // Reset to first step of loop
              // Recursive call to execute first step immediately
              return handleReason(state, ctx);
           } else {
             console.log(`✅ Loop complete. Exiting.`);
-            // Cleanup state? Keep for history?
-            // delete ctx.runtime.loopStates[loopId]; 
+
+            // Transfer loop stats to tracker before cleanup
+            const cycle = ctx.tracker.cycles?.[state.cycleIndex];
+            if (cycle && ctx.runtime.loopStates[loopId]) {
+              const loopState = ctx.runtime.loopStates[loopId];
+
+              if (!cycle.loopStats) {
+                cycle.loopStats = [];
+              }
+
+              cycle.loopStats.push({
+                loopId,
+                iterations: loopState.iteration,
+                conditionsMet: loopState.conditionsMet,
+              });
+
+              console.log(`📊 Loop stats recorded: ${loopState.iteration} iterations`);
+            }
+
+            // Cleanup runtime state
+            delete ctx.runtime.loopStates[loopId];
+
             ptr.pop(); // Remove step index
             ptr[0]++;  // Advance unit index
             // Recursive call to next unit
@@ -228,10 +278,20 @@ export async function handleReason(
            const altMatch = state.pageState.elements.find((el) => el.alternativeSelectors?.includes(cssSelector));
            if (altMatch) {
               console.log(`🔄 Alt match: ${altMatch.selector}`);
+
+              // Record drift event
+              ctx.runtime.currentCycleDrifts.push({
+                timestamp: createTimestamp(),
+                stepId,
+                resolutionMethod: 'alternative_match',
+                originalSelector: cssSelector,
+                adaptedSelector: altMatch.selector,
+              });
+
               const adaptedAction: Action = { ...cachedAction, elementId: String(altMatch.index) };
               // Self-healing: Update blueprint in-memory
               currentStep.targetElementSelector = altMatch.selector;
-              // Reset action elementId? cachedAction might have old one. 
+              // Reset action elementId? cachedAction might have old one.
               // Important: We don't save back to file yet, just runtime patch.
               ctx.runtime.hadAdaptations = true;
               return {
@@ -253,6 +313,21 @@ export async function handleReason(
                    cachedAction,
                    ctx.services.llmClient
                  );
+
+                 // Record drift event
+                 const resolutionMethod = driftResult.decision === 'can_proceed' ? 'llm_adaptation' : 'failed';
+                 const adaptedSelector = driftResult.adaptedAction?.elementId
+                   ? state.pageState.elements.find(e => String(e.index) === driftResult.adaptedAction!.elementId)?.selector
+                   : undefined;
+
+                 ctx.runtime.currentCycleDrifts.push({
+                   timestamp: createTimestamp(),
+                   stepId,
+                   resolutionMethod,
+                   originalSelector: cssSelector,
+                   adaptedSelector,
+                   llmReason: driftResult.reason,
+                 });
 
                  if (driftResult.decision === 'can_proceed') {
                     const finalAction = driftResult.adaptedAction 

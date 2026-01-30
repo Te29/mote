@@ -48,6 +48,9 @@ function extractSettings(config: ResolvedConfig): RuntimeSettings {
     tokenElements: config.tokenElements,
     tokenMaxElements: config.tokenMaxElements,
     tokenHistory: config.tokenHistory,
+    startUrl: config.startUrl,
+    enableCheckpointing: config.enableCheckpointing,
+    checkpointFrequency: config.checkpointFrequency,
   };
 }
 
@@ -73,7 +76,7 @@ function createBootstrapErrorResult(
     success: false,
     message: `Bootstrap failed: ${errorMessage}`,
     history: [],
-    plan: {
+    sessionTracker: {
       goalSummary: 'Bootstrap failed',
       cycleDescription: 'N/A',
       cycles: [],
@@ -98,7 +101,7 @@ function createEarlyExitResult(
     success: false,
     message: 'User quit at plan preview',
     history: [],
-    plan: tracker,
+    sessionTracker: tracker,
     cyclesCompleted: 0,
     duration: Date.now() - startTime,
     finalUrl: config.startUrl || '',
@@ -111,7 +114,7 @@ function createEarlyExitResult(
 function printBanner(config: ResolvedConfig, tracker: SessionTracker): void {
   const goalName = config.goal?.name || 'Custom Goal';
   console.log('\n' + '═'.repeat(60));
-  console.log('🤖 MOTE v2 - AI-Powered Browser Agent');
+  console.log('🤖 MOTE - AI-Powered Browser Agent');
   console.log('═'.repeat(60));
   console.log(`📎 Goal: ${goalName}`);
   console.log(`🌐 Start URL: ${config.startUrl}`);

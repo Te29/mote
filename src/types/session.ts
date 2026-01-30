@@ -149,6 +149,9 @@ export interface CycleTracker {
 
   /** Loop statistics for loops within this cycle */
   loopStats?: LoopStats[];
+
+  /** Drift analysis for this cycle */
+  driftAnalysis?: DriftAnalysis;
 }
 
 /**
@@ -157,12 +160,57 @@ export interface CycleTracker {
 export interface CycleStrategy {
   /** Natural language description of loop pattern */
   pattern: string;
-  
+
   /** Common step sequence */
   stepSequence: string[];
-  
+
   /** Common element patterns */
   keyElements: string[];
+}
+
+/**
+ * Record of a single drift detection and adaptation event.
+ * Tracks when the actual page state diverged from expected plan.
+ */
+export interface DriftRecord {
+  /** When drift was detected */
+  timestamp: string;
+
+  /** Which step experienced drift */
+  stepId: string;
+
+  /** Type of drift resolution used */
+  resolutionMethod: 'exact_match' | 'alternative_match' | 'llm_adaptation' | 'failed';
+
+  /** Original selector that failed */
+  originalSelector: string;
+
+  /** Adapted selector (if successful) */
+  adaptedSelector?: string;
+
+  /** LLM reasoning for adaptation (if used) */
+  llmReason?: string;
+}
+
+/**
+ * Drift analysis summary for a cycle.
+ * Provides metrics on how much the execution diverged from the plan.
+ */
+export interface DriftAnalysis {
+  /** Total drift incidents detected */
+  totalDrifts: number;
+
+  /** Successful adaptations */
+  successfulAdaptations: number;
+
+  /** Failed adaptations leading to termination */
+  failedAdaptations: number;
+
+  /** Detailed drift records */
+  driftRecords: DriftRecord[];
+
+  /** Overall drift severity: low | medium | high */
+  severity: 'low' | 'medium' | 'high';
 }
 
 /**
@@ -359,4 +407,62 @@ export function getProgress(tracker: SessionTracker): string {
     case 'complete':
       return 'Session complete';
   }
+}
+
+// =============================================================================
+// Loop Statistics Helpers
+// =============================================================================
+
+/**
+ * Get total iterations across all loops in a cycle.
+ */
+export function getTotalLoopIterations(cycle: CycleTracker): number {
+  return cycle.loopStats?.reduce((sum, stat) => sum + stat.iterations, 0) || 0;
+}
+
+/**
+ * Get loop statistics summary for reporting.
+ */
+export function getLoopStatsSummary(cycle: CycleTracker): string {
+  if (!cycle.loopStats || cycle.loopStats.length === 0) {
+    return 'No loops executed';
+  }
+
+  return cycle.loopStats
+    .map((stat) => `${stat.loopId}: ${stat.iterations} iterations`)
+    .join(', ');
+}
+
+// =============================================================================
+// Drift Analysis Helpers
+// =============================================================================
+
+/**
+ * Get drift summary across all cycles.
+ */
+export function getDriftSummary(tracker: SessionTracker): {
+  totalDrifts: number;
+  totalAdaptations: number;
+  avgSeverity: string;
+} {
+  const analyses = tracker.cycles
+    .map((c) => c.driftAnalysis)
+    .filter((a): a is DriftAnalysis => a !== undefined);
+
+  if (analyses.length === 0) {
+    return { totalDrifts: 0, totalAdaptations: 0, avgSeverity: 'none' };
+  }
+
+  const totalDrifts = analyses.reduce((sum, a) => sum + a.totalDrifts, 0);
+  const totalAdaptations = analyses.reduce((sum, a) => sum + a.successfulAdaptations, 0);
+
+  return {
+    totalDrifts,
+    totalAdaptations,
+    avgSeverity:
+      totalDrifts === 0 ? 'none' :
+      totalDrifts < 3 ? 'low' :
+      totalDrifts < 10 ? 'medium' :
+      'high',
+  };
 }

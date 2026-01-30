@@ -14,6 +14,7 @@ import type {
   StepPlan,
   CyclePlan,
   SessionPlan,
+  DriftRecord,
 } from './index.js';
 import type { InterventionMetrics } from '../prompt.js';
 import type { AgentServices } from './services.js';
@@ -104,6 +105,24 @@ export interface AgentSettings {
    * Max tokens for history steps in prompts.
    */
   tokenHistory: number;
+
+  /**
+   * Start URL for navigation.
+   * IMMUTABLE - set once at startup.
+   */
+  startUrl?: string;
+
+  /**
+   * Whether to save checkpoints during execution.
+   * IMMUTABLE - set once at startup.
+   */
+  enableCheckpointing: boolean;
+
+  /**
+   * Save checkpoint every N cycles.
+   * IMMUTABLE - set once at startup.
+   */
+  checkpointFrequency: number;
 }
 
 /**
@@ -181,9 +200,16 @@ export interface AgentRuntimeState {
   
   /**
    * Runtime state for active loops.
-   * Key: loopId, Value: { iteration: number }
+   * Key: loopId, Value: loop execution state
    */
-  loopStates: Record<string, { iteration: number }>;
+  loopStates: Record<
+    string,
+    {
+      iteration: number;
+      conditionsMet: string[]; // Track which conditions passed
+      startedAt: string; // Loop start timestamp
+    }
+  >;
 
   /**
    * Pending instruction from user intervention.
@@ -193,6 +219,16 @@ export interface AgentRuntimeState {
    * - reason.ts: Consumes (clears) after acting on it
    */
   pendingUserInstruction?: string;
+
+  /**
+   * Accumulated drift records for current cycle.
+   * Transferred to tracker.cycles[n].driftAnalysis on cycle completion.
+   * MUTATIONS:
+   * - cycle.ts (CYCLE_START): Reset to []
+   * - reason.ts: Append drift records during adaptation
+   * - cycle.ts (CYCLE_END): Transfer to tracker, reset to []
+   */
+  currentCycleDrifts: DriftRecord[];
 }
 
 // =============================================================================

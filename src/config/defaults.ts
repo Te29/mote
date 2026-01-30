@@ -48,4 +48,9 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   tokenElements: 2000,
   tokenMaxElements: 50,
   tokenHistory: 1000,
+
+  // ===== Session Checkpointing =====
+  enableCheckpointing: false,
+  checkpointFrequency: 1,
+  resumeCheckpoint: undefined,
 };

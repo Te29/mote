@@ -7,7 +7,7 @@
 //
 // =============================================================================
 
-import type { ResolvedConfig, UserInput, ConfigurableSettings, EngagementMode, Preset, SessionPlan, ConfigInput } from '../types/index.js';
+import type { ResolvedConfig, UserInput, ConfigurableSettings, EngagementMode, Preset, SessionPlan } from '../types/index.js';
 import { VALID_ENGAGEMENT_MODES } from '../types/index.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 import * as path from 'path';
@@ -142,8 +142,8 @@ export async function resolveConfig(
  * Load configuration from environment variables.
  * Returns partial config with only values that are set in env.
  */
-function loadEnvConfig(): ConfigInput {
-  const config: ConfigInput = {};
+function loadEnvConfig(): Partial<ConfigurableSettings> {
+  const config: Partial<ConfigurableSettings> = {};
 
   // Browser settings
   if (process.env.HEADLESS === 'true') {
@@ -240,18 +240,19 @@ function loadEnvConfig(): ConfigInput {
  * Load configuration from preset.
  * Presets can override any setting.
  */
-function loadPresetConfig(preset: Preset): ConfigInput {
-  const config: ConfigInput = {
+function loadPresetConfig(preset: Preset): Partial<ResolvedConfig> {
+  const config: Partial<ResolvedConfig> = {
     goal: preset.goal,
     startUrl: preset.startUrl,
     // sessionPlan is loaded via sessionPlanRef elsewhere, not directly on preset
     systemPrompt: (preset as any).systemPrompt, // If already resolved
+    // We can also store the ref temporarily if needed, but ResolvedConfig doesn't have ref fields
   };
 
   // If we have a ref but not the resolved text, we'll mark it for resolution
   // and carry it over if the resolver knows how to handle it,
   // but for now we'll just handle it in the main loop or here if we have dir context.
-  (config as any).systemPromptRef = preset.systemPromptRef;
+  // (config as any).systemPromptRef = preset.systemPromptRef; // Clean up - don't carry ref in config object
 
 
 

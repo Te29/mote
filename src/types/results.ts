@@ -57,7 +57,7 @@ export interface AgentResult {
   history: StepResult[];
 
   /** Final state of the session tracker */
-  plan: SessionTracker;
+  sessionTracker: SessionTracker;
 
   /** Number of cycles completed (0 if none) */
   cyclesCompleted: number;

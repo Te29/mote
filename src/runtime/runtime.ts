@@ -23,7 +23,7 @@ import type {
   EngagementMode,
   PageState,
 } from '../types/index.js';
-import { validateTransition, getCurrentCycleIndex } from '../types/index.js';
+import { validateTransition, getCurrentCycleIndex, getCurrentSection } from '../types/index.js';
 import type { InterventionMetrics } from '../prompt.js';
 import type { AgentServices } from '../types/services.js';
 import {
@@ -64,6 +64,9 @@ export interface RuntimeSettings {
   tokenElements: number;
   tokenMaxElements: number;
   tokenHistory: number;
+  startUrl?: string;
+  enableCheckpointing: boolean;
+  checkpointFrequency: number;
 }
 
 /**
@@ -152,6 +155,7 @@ export async function executeRuntime(
       hadAdaptations,
       executionPointer: [0], // Start at top-level unit 0
       loopStates: {},
+      currentCycleDrifts: [], // Initialize empty drift array
     },
   };
 
@@ -189,14 +193,33 @@ export async function executeRuntime(
   }
 
   // Start State Machine
-  // Initial state is SETUP if setupSteps exist, otherwise CYCLE_START (Cycle 0)
-  let currentState: AgentState =
-    ctx.sessionPlan?.setupSteps && ctx.sessionPlan.setupSteps.length > 0
-      ? { phase: 'SETUP' }
-      : {
-          phase: 'CYCLE_START',
-          cycleIndex: 0,
-        };
+  // Determine initial state based on tracker progress (for resumption support)
+  const currentSection = getCurrentSection(tracker);
+
+  let currentState: AgentState;
+
+  if (currentSection === 'setup') {
+    currentState = { phase: 'SETUP' };
+  } else if (currentSection === 'cycles') {
+    // Resume from current cycle (for checkpoint resumption)
+    const cycleIndex = getCurrentCycleIndex(tracker);
+    currentState = { phase: 'CYCLE_START', cycleIndex };
+  } else if (currentSection === 'wrapup') {
+    currentState = { phase: 'WRAPUP' };
+  } else if (currentSection === 'complete') {
+    // Session already complete (shouldn't normally happen)
+    return {
+      success: true,
+      message: 'Session already complete',
+      tracker,
+      history,
+      finalUrl: startUrl,
+      hadAdaptations: false,
+    };
+  } else {
+    // Fallback to CYCLE_START at cycle 0
+    currentState = { phase: 'CYCLE_START', cycleIndex: 0 };
+  }
 
   // Setup Interrupt Listener
   startInterruptListener();

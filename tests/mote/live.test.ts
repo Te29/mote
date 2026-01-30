@@ -6,7 +6,6 @@ import * as observe from '../../src/observe.js';
 import * as reason from '../../src/reason.js';
 import * as interaction from '../../src/interaction.js';
 import {
-  type ConfigInput,
   type SessionTracker,
   type PageState,
   createTimestamp,
@@ -60,15 +59,6 @@ describe('Mote Agent Live Smoke Test', () => {
     // Increase timeout for real browser interaction
     vi.setConfig({ testTimeout: 30000 });
 
-    const config: ConfigInput = {
-      goal: { name: 'Live Smoke Test', description: 'Visit example.com' },
-      startUrl: 'https://example.com',
-      engagementMode: 'autonomous',
-      stepPause: 0,
-      verbose: true,
-      headless: true, // Run headless for CI/Test speed
-    };
-
     // Spy on real browser/observe modules to verify they are called
     const launchSpy = vi.spyOn(browser, 'launchBrowser');
     const observeSpy = vi.spyOn(observe, 'observe');
@@ -81,7 +71,16 @@ describe('Mote Agent Live Smoke Test', () => {
     });
 
     console.log('Starting live agent run...');
-    const result = await mote.runAgent(config);
+    const result = await mote.runAgent({
+      overrides: {
+        goal: { name: 'Live Smoke Test', description: 'Visit example.com' },
+        startUrl: 'https://example.com',
+        engagementMode: 'autonomous',
+        stepPause: 0,
+        verbose: true,
+        headless: true, // Run headless for CI/Test speed
+      }
+    });
     console.log('Agent run finished.');
 
     // Verifications

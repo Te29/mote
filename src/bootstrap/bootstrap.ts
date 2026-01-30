@@ -18,7 +18,7 @@ import type {
   ResolvedConfig,
   EngagementMode,
 } from '../types/index.js';
-import { createTimestamp } from '../types/index.js';
+import { createTimestamp, getProgress } from '../types/index.js';
 import type { InterventionMetrics } from '../prompt.js';
 import type { AgentServices, BrowserSession } from '../types/services.js';
 import { requestIntervention, promptForLogin } from '../interaction.js';
@@ -100,12 +100,32 @@ export async function bootstrap(
   });
 
   // ---------------------------------------------------------------------------
-  // Create session tracker from plan or goal
+  // Create session tracker from plan or goal (or checkpoint)
   // ---------------------------------------------------------------------------
   let tracker: SessionTracker;
   let planWasRegenerated = false;
 
-  if (config.sessionPlan) {
+  // Check for checkpoint resumption
+  if (config.resumeCheckpoint) {
+    console.log(`📂 Resuming from checkpoint: ${config.resumeCheckpoint}`);
+
+    const { loadCheckpoint } = await import('../utils/checkpoint.js');
+    const checkpoint = loadCheckpoint(config.resumeCheckpoint);
+
+    if (!checkpoint) {
+      throw new Error(`Failed to load checkpoint: ${config.resumeCheckpoint}`);
+    }
+
+    console.log(`   Session: ${checkpoint.sessionId}`);
+    console.log(`   Saved: ${checkpoint.timestamp}`);
+    console.log(`   Progress: ${getProgress(checkpoint.tracker)}`);
+
+    // Use checkpoint tracker (skip normal tracker creation)
+    tracker = checkpoint.tracker;
+    planWasRegenerated = false;
+
+    console.log('✓ Checkpoint restored. Continuing bootstrap...');
+  } else if (config.sessionPlan) {
     // SessionPlan provided from preset - validate and convert to tracker
     const validation = reasonProxy.validateSessionPlan(config.sessionPlan);
 

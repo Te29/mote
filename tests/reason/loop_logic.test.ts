@@ -35,11 +35,18 @@ function createMockContext(cyclePlan: CyclePlan, mockEvaluate?: any): AgentConte
       } as any,
       lastObservedUrl: null,
       lastPageState: null,
+      currentCycleDrifts: [],
     },
     cyclePlan: cyclePlan,
     services: mockServices,
     interventionMetrics: {},
-    tracker: {} as any,
+    tracker: {
+      goalSummary: 'Test',
+      cycleDescription: 'Test',
+      cycles: [{ isCompleted: false, cycleSteps: [] }],
+      startedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(),
+    } as any,
     history: [],
     verbose: false,
     tokenMarkdown: 1000,
@@ -116,7 +123,9 @@ describe('Loop Logic in handleReason', () => {
     // Should be back at start of loop: [0, 0]
     expect(ctx.runtime.executionPointer).toEqual([0, 0]);
     // State updated to Iteration 2
-    expect(ctx.runtime.loopStates['loop-itr']).toEqual({ iteration: 2 });
+    expect(ctx.runtime.loopStates['loop-itr'].iteration).toBe(2);
+    // Should have conditionsMet array
+    expect(ctx.runtime.loopStates['loop-itr'].conditionsMet).toBeDefined();
     // Should execute step s1 again
     expect((result2 as any).stepId).toBe('s1');
   });
@@ -144,9 +153,9 @@ describe('Loop Logic in handleReason', () => {
 
     // --- Iteration 1 ---
     await handleReason(state, ctx); // Enter loop
-    expect(ctx.runtime.loopStates['loop-itr-exit']).toBeUndefined(); // initialized on completion logic, or maybe not? 
-    // Wait, my impl initializes `loopStates` only on *continuation*. 
-    // The "currentIteration" defaults to 1 if missing. Correct.
+    // Loop state is now initialized when entering the loop
+    expect(ctx.runtime.loopStates['loop-itr-exit']).toBeDefined();
+    expect(ctx.runtime.loopStates['loop-itr-exit'].iteration).toBe(1);
 
     // Simulate End of Iteration 1
     ctx.runtime.executionPointer = [0, 1];
@@ -197,7 +206,8 @@ describe('Loop Logic in handleReason', () => {
 
     // Should loop back
     expect(ctx.runtime.executionPointer).toEqual([0, 0]);
-    expect(ctx.runtime.loopStates['loop-dyn']).toEqual({ iteration: 2 });
+    expect(ctx.runtime.loopStates['loop-dyn'].iteration).toBe(2);
+    expect(ctx.runtime.loopStates['loop-dyn'].conditionsMet).toBeDefined();
     expect(mockEvaluate).toHaveBeenCalled();
   });
 

@@ -8,4 +8,4 @@
 
 export { resolveConfig } from './resolver.js';
 export { DEFAULT_CONFIG } from './defaults.js';
-export type { ResolvedConfig, ConfigInput, UserInput } from '../types/index.js';
+export type { ResolvedConfig, UserInput } from '../types/index.js';

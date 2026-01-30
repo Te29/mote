@@ -123,6 +123,11 @@ export interface ConfigurableSettings {
   tokenElements?: number;
   tokenMaxElements?: number;
   tokenHistory?: number;
+
+  // ===== Session Checkpointing =====
+  enableCheckpointing?: boolean; // Save checkpoints during execution
+  checkpointFrequency?: number; // Save every N cycles (default: 1)
+  resumeCheckpoint?: string; // Path to checkpoint file to resume from
 }
 
 // -----------------------------------------------------------------------------
@@ -166,7 +171,7 @@ export interface Preset extends ConfigurableSettings {
  * All preset references (sessionPlanRef, systemPromptRef) are resolved
  * to actual content (sessionPlan, systemPrompt) by this point.
  */
-export interface ResolvedConfig extends Required<Omit<ConfigurableSettings, 'goal' | 'startUrl' | 'profilePath'>> {
+export interface ResolvedConfig extends Required<Omit<ConfigurableSettings, 'goal' | 'startUrl' | 'profilePath' | 'resumeCheckpoint'>> {
   // --- Task Definition (optional - can be provided later) ---
   goal?: Goal;
 
@@ -182,6 +187,9 @@ export interface ResolvedConfig extends Required<Omit<ConfigurableSettings, 'goa
 
   /** System prompt - loaded from preset ref OR provided directly */
   systemPrompt?: string;
+
+  // --- Checkpoint Resume (optional - only provided when resuming) ---
+  resumeCheckpoint?: string;
 
   // Note: All other ConfigurableSettings fields are REQUIRED
   // (populated with defaults during resolution)
@@ -221,7 +229,4 @@ export interface UserInput {
   systemPrompt?: string;
 }
 
-/**
- * @deprecated Use UserInput instead. Will be removed in next major version.
- */
-export type ConfigInput = Partial<ResolvedConfig> & { preset?: Preset | string };
+
