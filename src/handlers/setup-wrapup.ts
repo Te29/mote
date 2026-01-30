@@ -16,6 +16,8 @@ import type { AgentContext } from '../types/context.js';
 import type { StepTracker, StepResult } from '../types/index.js';
 import { createTimestamp } from '../types/session.js';
 import { executeAction } from '../act/act.js';
+import { saveCheckpoint, type SessionCheckpoint, type CheckpointRuntimeState } from '../utils/checkpoint.js';
+import * as path from 'path';
 
 // -----------------------------------------------------------------------------
 // SETUP HANDLER
@@ -246,6 +248,41 @@ export async function handleWrapup(
   }
 
   console.log(`  ✅ Wrapup step completed`);
+
+  // Save checkpoint after each wrapup step to prevent data loss
+  if (ctx.enableCheckpointing) {
+    const sessionId =
+      ctx.goal?.name.toLowerCase().replace(/\s+/g, '-') ||
+      ctx.preset?.name.toLowerCase().replace(/\s+/g, '-') ||
+      'session';
+
+    // Capture runtime state for precise resumption
+    const runtimeState: CheckpointRuntimeState = {
+      executionPointer: [...ctx.runtime.executionPointer],
+      loopStates: { ...ctx.runtime.loopStates },
+    };
+
+    const checkpoint: SessionCheckpoint = {
+      version: '1.0.0',
+      timestamp: createTimestamp(),
+      sessionId,
+      tracker: ctx.tracker,
+      history: ctx.history,
+      startUrl: ctx.tracker.cycleStartUrl || ctx.startUrl || '',
+      lastUrl: ctx.runtime.activePage.url(),
+      goalDescription: ctx.goal?.description,
+      presetName: ctx.preset?.name,
+      runtimeState,
+    };
+
+    try {
+      const filepath = saveCheckpoint(checkpoint);
+      console.log(`  💾 Wrapup checkpoint saved: ${path.basename(filepath)}`);
+    } catch (checkpointError) {
+      console.warn('  ⚠️ Failed to save wrapup checkpoint:', checkpointError);
+      // Non-fatal - continue execution
+    }
+  }
 
   // Continue to next wrapup step
   return {

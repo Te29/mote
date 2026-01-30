@@ -229,15 +229,31 @@ export async function handleAct(
   // Update intervention metrics
   if (result.success) {
     ctx.interventionMetrics.consecutiveFailures = 0;
-    
-    // Increment execution pointer if we are following a path
-    // Simple top-level increment for now - complex loop logic handled in REASON/Drift
-    if (ctx.cyclePlan && ctx.runtime.executionPointer.length === 1) {
-       // Only auto-increment if we are at top-level linear path
-       // Loops require more logic (checking conditions etc) which should happen in REASON
-       const currentIdx = ctx.runtime.executionPointer[0];
-       if (currentIdx < ctx.cyclePlan.units.length) {
-          ctx.runtime.executionPointer[0]++;
+
+    // Increment execution pointer if we are following a blueprint path
+    if (ctx.cyclePlan && ctx.runtime.executionPointer.length > 0) {
+       const ptr = ctx.runtime.executionPointer;
+
+       if (ptr.length === 1) {
+         // Top-level linear path: increment unit index
+         const currentIdx = ptr[0];
+         if (currentIdx < ctx.cyclePlan.units.length) {
+           const unit = ctx.cyclePlan.units[currentIdx];
+           // Only auto-increment for Step units
+           // Loop units are handled differently (condition checking in REASON)
+           if (unit.type === 'step') {
+             ptr[0]++;
+           }
+         }
+       } else if (ptr.length === 2) {
+         // Inside a loop: increment step index within loop
+         const unitIndex = ptr[0];
+         const unit = ctx.cyclePlan.units[unitIndex];
+         if (unit?.type === 'loop') {
+           ptr[1]++;
+           // Note: Loop condition checking (whether to continue/exit) happens in REASON
+           // when ptr[1] >= unit.loop.steps.length
+         }
        }
     }
   } else {

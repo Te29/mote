@@ -19,6 +19,24 @@ const CHECKPOINT_DIR = path.join(process.cwd(), '.mote-checkpoints');
 // =============================================================================
 
 /**
+ * Runtime state saved in checkpoint for resumption.
+ */
+export interface CheckpointRuntimeState {
+  /** Current execution pointer in cycle plan */
+  executionPointer: number[];
+
+  /** Loop states for active loops */
+  loopStates: Record<
+    string,
+    {
+      iteration: number;
+      conditionsMet: string[];
+      startedAt: string;
+    }
+  >;
+}
+
+/**
  * Complete checkpoint data structure.
  * Contains everything needed to resume a session.
  */
@@ -52,6 +70,10 @@ export interface SessionCheckpoint {
 
   /** Preset name if loaded from preset (optional) */
   presetName?: string;
+
+  // Runtime state for precise resumption (optional for backward compatibility)
+  /** Saved runtime state for mid-loop resumption */
+  runtimeState?: CheckpointRuntimeState;
 }
 
 /**

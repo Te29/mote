@@ -70,6 +70,21 @@ export interface RuntimeSettings {
 }
 
 /**
+ * Restored runtime state from checkpoint (for mid-loop resumption).
+ */
+export interface RestoredRuntimeState {
+  executionPointer: number[];
+  loopStates: Record<
+    string,
+    {
+      iteration: number;
+      conditionsMet: string[];
+      startedAt: string;
+    }
+  >;
+}
+
+/**
  * Configuration for runtime execution.
  */
 export interface RuntimeConfig {
@@ -93,6 +108,9 @@ export interface RuntimeConfig {
 
   /** Start URL for initial navigation */
   startUrl: string;
+
+  /** Restored runtime state from checkpoint (optional) */
+  restoredRuntimeState?: RestoredRuntimeState;
 }
 
 /**
@@ -147,16 +165,22 @@ export async function executeRuntime(
     interventionMetrics,
 
     // Runtime state (mutable)
+    // Use restored state from checkpoint if available, otherwise initialize fresh
     runtime: {
       activePage: activePageRef,
       lastObservedUrl: null, // Initialize as null
       lastPageState: null,   // Initialize as null
       hadAdaptations: false,
-      executionPointer: [0], // Start at top-level unit 0
-      loopStates: {},
+      executionPointer: config.restoredRuntimeState?.executionPointer ?? [0],
+      loopStates: config.restoredRuntimeState?.loopStates ?? {},
       currentCycleDrifts: [], // Initialize empty drift array
     },
   };
+
+  // Log if resuming with restored state
+  if (config.restoredRuntimeState) {
+    console.log(`📍 Resumed runtime state: pointer=${JSON.stringify(ctx.runtime.executionPointer)}, loops=${Object.keys(ctx.runtime.loopStates).length}`);
+  }
 
   // Initial State: NAVIGATION
   // (Navigation is implicit in Phase 2 Bootstrap, but we verify here)

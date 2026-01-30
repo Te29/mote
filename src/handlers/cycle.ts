@@ -14,7 +14,7 @@ import { shouldIntervene, requestIntervention, processInterventionControl, check
 import { logVariable } from '../utils/debug.js';
 import { think } from '../reason.js';
 import { executeVerification } from '../utils/verification.js';
-import { saveCheckpoint, type SessionCheckpoint } from '../utils/checkpoint.js';
+import { saveCheckpoint, type SessionCheckpoint, type CheckpointRuntimeState } from '../utils/checkpoint.js';
 import * as path from 'path';
 
 // -----------------------------------------------------------------------------
@@ -131,10 +131,20 @@ export async function handleCycleEnd(
     // Analyze drift for this cycle
     if (ctx.runtime.currentCycleDrifts.length > 0) {
       const driftRecords = ctx.runtime.currentCycleDrifts;
-      const successfulAdaptations = driftRecords.filter(
-        (d) => d.resolutionMethod === 'alternative_match' || d.resolutionMethod === 'llm_adaptation'
+
+      // Count different resolution methods separately for accurate statistics
+      const alternativeMatches = driftRecords.filter(
+        (d) => d.resolutionMethod === 'alternative_match'
       ).length;
-      const failedAdaptations = driftRecords.filter((d) => d.resolutionMethod === 'failed').length;
+      const llmAdaptations = driftRecords.filter(
+        (d) => d.resolutionMethod === 'llm_adaptation'
+      ).length;
+      const failedAdaptations = driftRecords.filter(
+        (d) => d.resolutionMethod === 'failed'
+      ).length;
+
+      // Total successful adaptations (both types)
+      const successfulAdaptations = alternativeMatches + llmAdaptations;
 
       // Calculate severity based on drift rate
       const driftRate = driftRecords.length / Math.max(1, cycle.cycleSteps.length);
@@ -147,10 +157,13 @@ export async function handleCycleEnd(
         failedAdaptations,
         driftRecords,
         severity,
+        // Add detailed breakdown for accurate statistics
+        alternativeMatches,
+        llmAdaptations,
       };
 
       console.log(
-        `📊 Drift Analysis: ${driftRecords.length} drifts detected (severity: ${severity})`
+        `📊 Drift Analysis: ${driftRecords.length} drifts (alt: ${alternativeMatches}, llm: ${llmAdaptations}, failed: ${failedAdaptations}, severity: ${severity})`
       );
 
       // Reset for next cycle
@@ -329,6 +342,12 @@ export async function handleCycleEnd(
         ctx.preset?.name.toLowerCase().replace(/\s+/g, '-') ||
         'session';
 
+      // Capture runtime state for precise resumption
+      const runtimeState: CheckpointRuntimeState = {
+        executionPointer: [...ctx.runtime.executionPointer],
+        loopStates: { ...ctx.runtime.loopStates },
+      };
+
       const checkpoint: SessionCheckpoint = {
         version: '1.0.0',
         timestamp: createTimestamp(),
@@ -339,6 +358,7 @@ export async function handleCycleEnd(
         lastUrl: ctx.runtime.activePage.url(),
         goalDescription: ctx.goal?.description,
         presetName: ctx.preset?.name,
+        runtimeState,
       };
 
       try {
@@ -435,6 +455,12 @@ export async function handleCycleEnd(
       ctx.preset?.name.toLowerCase().replace(/\s+/g, '-') ||
       'session';
 
+    // Capture runtime state for precise resumption
+    const runtimeState: CheckpointRuntimeState = {
+      executionPointer: [...ctx.runtime.executionPointer],
+      loopStates: { ...ctx.runtime.loopStates },
+    };
+
     const checkpoint: SessionCheckpoint = {
       version: '1.0.0', // TODO: Import from package.json
       timestamp: createTimestamp(),
@@ -445,6 +471,7 @@ export async function handleCycleEnd(
       lastUrl: ctx.runtime.activePage.url(),
       goalDescription: ctx.goal?.description,
       presetName: ctx.preset?.name,
+      runtimeState,
     };
 
     try {

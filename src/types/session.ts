@@ -203,7 +203,7 @@ export interface DriftAnalysis {
   /** Total drift incidents detected */
   totalDrifts: number;
 
-  /** Successful adaptations */
+  /** Successful adaptations (total: alternativeMatches + llmAdaptations) */
   successfulAdaptations: number;
 
   /** Failed adaptations leading to termination */
@@ -214,6 +214,12 @@ export interface DriftAnalysis {
 
   /** Overall drift severity: low | medium | high */
   severity: 'low' | 'medium' | 'high';
+
+  /** Drifts resolved by alternative selector matching (no LLM) */
+  alternativeMatches?: number;
+
+  /** Drifts resolved by LLM reasoning */
+  llmAdaptations?: number;
 }
 
 /**

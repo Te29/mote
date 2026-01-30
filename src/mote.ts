@@ -197,10 +197,11 @@ export async function runAgent(
       settings: runtimeSettings,
       services: bootstrapResult.services,
       tracker: bootstrapResult.tracker,
-      history: [],
+      history: bootstrapResult.history ?? [],
       interventionMetrics: bootstrapResult.interventionMetrics,
       activePage: bootstrapResult.activePage,
       startUrl: bootstrapResult.startUrl,
+      restoredRuntimeState: bootstrapResult.restoredRuntimeState,
     });
   } catch (error) {
     const errorMessage =

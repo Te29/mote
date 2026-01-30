@@ -17,6 +17,7 @@ import type {
   SessionTracker,
   ResolvedConfig,
   EngagementMode,
+  StepResult,
 } from '../types/index.js';
 import { createTimestamp, getProgress } from '../types/index.js';
 import type { InterventionMetrics } from '../prompt.js';
@@ -37,6 +38,21 @@ const reasonProxy = createTraceProxy(reasonModule, 'Reason');
 // -----------------------------------------------------------------------------
 
 /**
+ * Restored runtime state from checkpoint.
+ */
+export interface RestoredRuntimeState {
+  executionPointer: number[];
+  loopStates: Record<
+    string,
+    {
+      iteration: number;
+      conditionsMet: string[];
+      startedAt: string;
+    }
+  >;
+}
+
+/**
  * Result of bootstrap phase - all services and initial state ready for execution.
  */
 export interface BootstrapResult {
@@ -45,6 +61,12 @@ export interface BootstrapResult {
 
   /** Session tracker with plan */
   tracker: SessionTracker;
+
+  /** Restored history from checkpoint (if resuming) */
+  history?: StepResult[];
+
+  /** Restored runtime state from checkpoint (if resuming) */
+  restoredRuntimeState?: RestoredRuntimeState;
 
   /** Initial intervention metrics */
   interventionMetrics: InterventionMetrics;
@@ -105,6 +127,10 @@ export async function bootstrap(
   let tracker: SessionTracker;
   let planWasRegenerated = false;
 
+  // Variables for checkpoint restoration
+  let restoredHistory: StepResult[] | undefined;
+  let restoredRuntimeState: RestoredRuntimeState | undefined;
+
   // Check for checkpoint resumption
   if (config.resumeCheckpoint) {
     console.log(`📂 Resuming from checkpoint: ${config.resumeCheckpoint}`);
@@ -123,6 +149,16 @@ export async function bootstrap(
     // Use checkpoint tracker (skip normal tracker creation)
     tracker = checkpoint.tracker;
     planWasRegenerated = false;
+
+    // Restore history from checkpoint
+    restoredHistory = checkpoint.history;
+    console.log(`   History: ${restoredHistory.length} steps`);
+
+    // Restore runtime state if available (for mid-loop resumption)
+    if (checkpoint.runtimeState) {
+      restoredRuntimeState = checkpoint.runtimeState;
+      console.log(`   Runtime: pointer=${JSON.stringify(restoredRuntimeState.executionPointer)}, loops=${Object.keys(restoredRuntimeState.loopStates).length}`);
+    }
 
     console.log('✓ Checkpoint restored. Continuing bootstrap...');
   } else if (config.sessionPlan) {
@@ -233,6 +269,8 @@ export async function bootstrap(
   return {
     services,
     tracker,
+    history: restoredHistory,
+    restoredRuntimeState,
     interventionMetrics,
     session,
     activePage: session.page,
