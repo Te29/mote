@@ -120,6 +120,9 @@ export interface StepTracker {
 export interface CycleStepTracker extends StepTracker {
   /** Reference to LoopPlan ID if inside a loop */
   loopId?: string;
+
+  /** Loop iteration number (1-based) if inside a loop */
+  loopIteration?: number;
 }
 
 /** 

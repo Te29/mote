@@ -52,6 +52,10 @@ export async function handleReason(
       const unit: PlanUnit = ctx.cyclePlan.units[unitIndex];
       let currentStep: StepPlan | null = null;
 
+      // Track loop context for action returns
+      let currentLoopId: string | undefined = undefined;
+      let currentLoopIteration: number | undefined = undefined;
+
       // 1. RESOLVE CURRENT STEP (Handle Loops)
       if (unit.type === 'step') {
         currentStep = unit.step;
@@ -72,6 +76,10 @@ export async function handleReason(
         const loopStepIndex = ptr[1];
         if (loopStepIndex < unit.loop.steps.length) {
           currentStep = unit.loop.steps[loopStepIndex];
+          // Set loop context for action tracking
+          const loopId = unit.loop.loopId;
+          currentLoopId = loopId;
+          currentLoopIteration = ctx.runtime.loopStates[loopId]?.iteration || 1;
         } else {
           // End of loop iteration
           const loopId = unit.loop.loopId;
@@ -235,7 +243,9 @@ export async function handleReason(
                 cycleIndex: state.cycleIndex,
                 action: adaptationResult.action,
                 pageState: state.pageState,
-                stepId, 
+                stepId,
+                loopId: currentLoopId,
+                loopIteration: currentLoopIteration,
                 globalIndex: unitIndex
               };
            }
@@ -258,7 +268,9 @@ export async function handleReason(
               cycleIndex: state.cycleIndex,
               action: { type: 'wait', reason: currentStep.description || 'Verified step' },
               pageState: state.pageState,
-              stepId, 
+              stepId,
+              loopId: currentLoopId,
+              loopIteration: currentLoopIteration,
               globalIndex: unitIndex
            };
         }
@@ -276,7 +288,9 @@ export async function handleReason(
                 cycleIndex: state.cycleIndex,
                 action: cachedAction,
                 pageState: state.pageState,
-                stepId, 
+                stepId,
+                loopId: currentLoopId,
+                loopIteration: currentLoopIteration,
                 globalIndex: unitIndex
               };
            }
@@ -306,7 +320,9 @@ export async function handleReason(
                 cycleIndex: state.cycleIndex,
                 action: adaptedAction,
                 pageState: state.pageState,
-                stepId, 
+                stepId,
+                loopId: currentLoopId,
+                loopIteration: currentLoopIteration,
                 globalIndex: unitIndex
               };
             }
@@ -355,7 +371,9 @@ export async function handleReason(
                       cycleIndex: state.cycleIndex,
                       action: finalAction,
                       pageState: state.pageState,
-                      stepId, 
+                      stepId,
+                      loopId: currentLoopId,
+                      loopIteration: currentLoopIteration,
                       globalIndex: unitIndex
                     };
                  } else if (driftResult.decision === 'cannot_complete') {
@@ -373,7 +391,9 @@ export async function handleReason(
               cycleIndex: state.cycleIndex,
               action: cachedAction,
               pageState: state.pageState,
-              stepId, 
+              stepId,
+              loopId: currentLoopId,
+              loopIteration: currentLoopIteration,
               globalIndex: unitIndex
            };
         }

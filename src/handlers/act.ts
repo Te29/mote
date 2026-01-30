@@ -197,6 +197,7 @@ export async function handleAct(
       globalIndex: state.globalIndex ?? -1,
       stepId: state.stepId ?? "unknown",
       loopId: state.loopId,
+      loopIteration: state.loopIteration,
       isCompleted: true,
       action: state.action,
       stepDescription: state.action.reason,
