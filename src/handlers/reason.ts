@@ -8,7 +8,7 @@ import type {
   AgentStateReason,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
-import type { Action, WebAction, StepPlan } from '../types/actions.js';
+import type { Action, WebAction, StepPlan, PlanUnit } from '../types/actions.js';
 import { createTimestamp } from '../types/session.js';
 import { logVariable } from '../utils/debug.js';
 import { shouldIntervene, requestIntervention, processInterventionControl } from '../interaction.js';
@@ -38,11 +38,18 @@ export async function handleReason(
 
   if (ctx.cyclePlan && ctx.runtime.executionPointer) {
     const ptr = ctx.runtime.executionPointer;
-    const unitIndex = ptr[0];
-    
-    // Safety check
-    if (unitIndex < ctx.cyclePlan.units.length) {
-      const unit = ctx.cyclePlan.units[unitIndex];
+
+    // Use iteration instead of recursion to avoid stack overflow
+    while (true) {
+      const unitIndex = ptr[0];
+
+      // Safety check
+      if (unitIndex >= ctx.cyclePlan.units.length) {
+        // Unit index out of bounds - Path Complete
+        console.log(`✅ Execution path completed. Switching to LLM reasoning.`);
+        break;
+      }
+      const unit: PlanUnit = ctx.cyclePlan.units[unitIndex];
       let currentStep: StepPlan | null = null;
 
       // 1. RESOLVE CURRENT STEP (Handle Loops)
@@ -150,8 +157,8 @@ export async function handleReason(
                startedAt: loopState.startedAt,
              };
              ptr[1] = 0; // Reset to first step of loop
-             // Recursive call to execute first step immediately
-             return handleReason(state, ctx);
+             // Continue to execute first step immediately
+             continue;
           } else {
             console.log(`✅ Loop complete. Exiting.`);
 
@@ -178,8 +185,8 @@ export async function handleReason(
 
             ptr.pop(); // Remove step index
             ptr[0]++;  // Advance unit index
-            // Recursive call to next unit
-            return handleReason(state, ctx);
+            // Continue to next unit
+            continue;
           }
         }
       }
@@ -371,10 +378,7 @@ export async function handleReason(
            };
         }
       }
-    } else {
-       // Unit index out of bounds - Path Complete
-       console.log(`✅ Execution path completed. Switching to LLM reasoning.`);
-    }
+    } // end while loop
   }
 
   // ---------------------------------------------------------------------------

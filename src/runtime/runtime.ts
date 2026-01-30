@@ -132,7 +132,6 @@ export async function executeRuntime(
   // Initial Context
   // Create references to mutable state that will be shared across handlers
   const activePageRef = activePage;
-  const hadAdaptations = false;
 
   // Create Context Object
   const ctx: AgentContext = {
@@ -152,7 +151,7 @@ export async function executeRuntime(
       activePage: activePageRef,
       lastObservedUrl: null, // Initialize as null
       lastPageState: null,   // Initialize as null
-      hadAdaptations,
+      hadAdaptations: false,
       executionPointer: [0], // Start at top-level unit 0
       loopStates: {},
       currentCycleDrifts: [], // Initialize empty drift array
@@ -282,20 +281,6 @@ export async function executeRuntime(
 
       // Validate Transition
       validateTransition(previousState.phase, currentState.phase);
-
-      // Update Cycle Index logic is handled within handlers (e.g., ACT -> OBSERVE increments cycle)
-      // Verify consistency?
-      const expectedCycle = getCurrentCycleIndex(ctx.tracker);
-      if (
-        currentState.phase !== 'TERMINATED' &&
-        currentState.phase !== 'SETUP' &&
-        currentState.phase !== 'WRAPUP' &&
-        'cycleIndex' in currentState &&
-        currentState.cycleIndex !== expectedCycle
-      ) {
-        // Warn or correct? Handlers should manage this.
-        // reason.ts handles replanning which might reset cycles, so strict check might be flaky.
-      }
 
     } catch (error) {
       // Global Error Handler for Runtime Loop

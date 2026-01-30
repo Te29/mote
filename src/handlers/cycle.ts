@@ -9,7 +9,7 @@ import type {
   AgentStateCycleEnd,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
-import { createTimestamp, getCurrentCycleIndex, getProgress } from '../types/session.js';
+import { createTimestamp, getCurrentCycleIndex, getProgress, getCompletedCycles } from '../types/session.js';
 import { shouldIntervene, requestIntervention, processInterventionControl, checkInterrupt } from '../interaction.js';
 import { logVariable } from '../utils/debug.js';
 import { think } from '../reason.js';
@@ -74,7 +74,7 @@ export async function handleCycleStart(
       ctx.tracker.cycles[cycleIndex].isCompleted = true;
       const nextCycleIndex = getCurrentCycleIndex(ctx.tracker);
       if (nextCycleIndex >= 0) {
-        return { phase: 'OBSERVE', cycleIndex: nextCycleIndex };
+        return { phase: 'CYCLE_START', cycleIndex: nextCycleIndex };
       }
       return {
         phase: 'TERMINATED',
@@ -188,21 +188,12 @@ export async function handleCycleEnd(
     }
   }
 
-  // If this cycle failed, terminate
-  if (state.result === 'FAILURE') {
-    return {
-      phase: 'TERMINATED',
-      success: false,
-      message: state.detail || 'Cycle failed',
-    };
-  }
-
   // Check if there are more cycles
   const nextCycleIndex = getCurrentCycleIndex(ctx.tracker);
 
   // TERMINAL Intervention
   // If no more cycles OR failure, we are at a terminal state
-  const isTerminal = nextCycleIndex === -1 || (state.result as string) === 'FAILURE';
+  const isTerminal = nextCycleIndex === -1 || state.result === 'FAILURE';
   
   if (isTerminal && shouldIntervene(ctx.engagementMode, 'TERMINAL')) {
     const thinkResult = state.result === 'SUCCESS' 
@@ -230,7 +221,7 @@ export async function handleCycleEnd(
     const pageState = ctx.runtime.lastPageState;
 
     // 1. Handle Force Fail (Override Success)
-    if ((state.result as string) === 'SUCCESS' && response.type === 'force_fail') {
+    if (state.result === 'SUCCESS' && response.type === 'force_fail') {
        return {
          phase: 'TERMINATED',
          success: false,
@@ -239,7 +230,7 @@ export async function handleCycleEnd(
     }
 
     // 2. Handle Force Success (Override Failure)
-    if ((state.result as string) === 'FAILURE' && control.action === 'succeed') {
+    if (state.result === 'FAILURE' && control.action === 'succeed') {
        return {
          phase: 'TERMINATED',
          success: true,
@@ -252,7 +243,7 @@ export async function handleCycleEnd(
        const isQuit = control.reason === 'User quit';
        return {
           phase: 'TERMINATED',
-          success: isQuit ? false : ((state.result as string) === 'SUCCESS'),
+          success: isQuit ? false : (state.result === 'SUCCESS'),
           message: control.reason
        };
     }
@@ -262,7 +253,7 @@ export async function handleCycleEnd(
         if (pageState) {
           const instruction = control.action === 'modify'
             ? control.instruction
-            : (state.result as string) === 'SUCCESS' // Use state.result directly
+            : state.result === 'SUCCESS' // Use state.result directly
               ? 'The goal is not actually complete. Keep going.'
               : "Don't give up. Try a different approach.";
 
@@ -303,7 +294,7 @@ export async function handleCycleEnd(
   }
 
   // If this cycle failed, terminate
-  if ((state.result as string) === 'FAILURE') {
+  if (state.result === 'FAILURE') {
     return {
       phase: 'TERMINATED',
       success: false,
@@ -386,7 +377,7 @@ export async function handleCycleEnd(
   // Save checkpoint if enabled and at checkpoint frequency
   if (
     ctx.enableCheckpointing &&
-    ctx.tracker.cycles.length % ctx.checkpointFrequency === 0
+    getCompletedCycles(ctx.tracker) % ctx.checkpointFrequency === 0
   ) {
     const sessionId =
       ctx.goal?.name.toLowerCase().replace(/\s+/g, '-') ||
