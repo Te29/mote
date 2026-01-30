@@ -42,7 +42,7 @@ import type {
   StepResult,
   ThinkResult,
   ResolvedConfig,
-  Cycle,
+  CycleTracker,
   CycleStrategy,
   InterventionPoint,
   Action
@@ -281,7 +281,7 @@ export interface Intervention {
 export interface PlanState {
   completedCycles: number;
   currentCycleIdx: number;
-  currentCycle: Cycle | null;
+  currentCycle: CycleTracker | null;
   stepsInCurrentCycle: number;
 }
 
@@ -362,6 +362,7 @@ export function formatHistory(history: StepResult[], maxItems: number = 5, maxTo
 
   // Detect loops: same action type + same selectors appearing multiple times
   const actionSignatures = recentHistory.map(h => {
+    if (!h.action) return 'no-action';
     const ids = h.action.elementIds?.join(',') || h.action.elementId || '';
     return `${h.action.type}:${ids}`;
   });
@@ -378,10 +379,11 @@ export function formatHistory(history: StepResult[], maxItems: number = 5, maxTo
 
   formatted += '\n' + recentHistory.map((step, i) => {
     const status = step.success ? '✔' : '✗';
+    if (!step.action) return `${i + 1}. [${status}] (no action)`;
     const ids = step.action.elementIds?.join(', ') || step.action.elementId || '';
     const target = ids ? ` on [${ids}]` : '';
     let line = `${i + 1}. [${status}] ${step.action.type}${target}: ${step.action.reason}`;
-    
+
     if (!step.success && step.error) {
        line += `\n   ERROR: ${step.error}`;
     }

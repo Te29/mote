@@ -63,6 +63,12 @@ export interface BootstrapResult {
 
   /** Custom system prompt loaded from preset or input */
   customSystemPrompt?: string;
+
+  /** Preset metadata for saving back modifications */
+  presetMetadata?: {
+    name: string;
+    dir: string;
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -74,10 +80,12 @@ export interface BootstrapResult {
  * Sets up services, browser, LLM client, and generates initial plan.
  *
  * @param config - Fully resolved configuration
+ * @param presetMetadata - Optional preset metadata for saving back modifications
  * @returns Bootstrap result with all services and initial state
  */
 export async function bootstrap(
-  config: ResolvedConfig
+  config: ResolvedConfig,
+  presetMetadata?: { name: string; dir: string }
 ): Promise<BootstrapResult> {
   const startTime = Date.now();
 
@@ -92,38 +100,34 @@ export async function bootstrap(
   });
 
   // ---------------------------------------------------------------------------
-  // Create or validate session tracker (plan)
+  // Create session tracker from plan or goal
   // ---------------------------------------------------------------------------
   let tracker: SessionTracker;
   let planWasRegenerated = false;
 
   if (config.sessionPlan) {
-    // Validate existing plan from config (originally from preset)
+    // SessionPlan provided from preset - validate and convert to tracker
     const validation = reasonProxy.validateSessionPlan(config.sessionPlan);
+
     if (!validation.valid) {
-      console.warn(
-        '⚠️ SessionTracker validation failed:',
-        validation.errors,
-      );
-      console.log('   Generating new plan from goal...');
-      tracker = await reasonProxy.generatePlan(
-        config.goal || { name: 'Task', description: 'Complete the task' },
-        llmClient,
-      );
-      planWasRegenerated = true;
+      console.warn('⚠️ SessionPlan validation failed:', validation.errors);
+      console.log('   Falling back to goal-based planning...');
+
+      if (config.goal) {
+        tracker = await reasonProxy.generatePlan(config.goal, llmClient);
+        planWasRegenerated = true;
+      } else {
+        throw new Error('Invalid SessionPlan and no goal provided');
+      }
     } else {
-      // Use valid plan with fresh timestamps
-      tracker = {
-        ...config.sessionPlan,
-        startedAt: createTimestamp(),
-        lastUpdatedAt: createTimestamp(),
-      };
+      // Convert SessionPlan → SessionTracker
+      tracker = reasonProxy.initializeTrackerFromPlan(config.sessionPlan);
     }
   } else if (config.goal) {
-    // Generate new plan from goal
+    // No SessionPlan - generate tracker from goal
     tracker = await reasonProxy.generatePlan(config.goal, llmClient);
   } else {
-    // Fallback: create minimal plan
+    // Fallback: minimal tracker
     tracker = {
       goalSummary: 'Complete the task',
       cycleDescription: 'Complete one iteration',
@@ -215,5 +219,6 @@ export async function bootstrap(
     startTime,
     startUrl: config.startUrl!,
     customSystemPrompt: config.systemPrompt,
+    presetMetadata,
   };
 }

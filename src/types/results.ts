@@ -18,8 +18,8 @@ export interface StepResult {
   /** Step number (1, 2, 3, ...) */
   step: number;
 
-  /** The action that was executed */
-  action: Action;
+  /** The action that was executed (optional for steps without actions) */
+  action?: Action;
 
   /** Did execution succeed? */
   success: boolean;
@@ -28,7 +28,7 @@ export interface StepResult {
   error?: string;
 
   /** Page state before the action (used for Execute mode verification) */
-  pageStateBefore: PageState;
+  pageStateBefore?: PageState;
 
   /** Page state after the action */
   pageStateAfter?: PageState;

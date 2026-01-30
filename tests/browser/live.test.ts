@@ -29,6 +29,7 @@ describe('Browser Module - Live Tests', () => {
     browserSession = await launchBrowser({
       headless: true,
       slowMo: 0,
+      profilePath: undefined,
       stealth: true, // Enable stealth
       timeoutDefault: 10000,
       timeoutNavigation: 10000,

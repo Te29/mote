@@ -98,8 +98,10 @@ describe('Explore vs Execute Mode', () => {
 
     // Run
     const result = await runAgent({
-      goal: { name: 'Test', description: 'Test Goal' },
-      headless: true
+      overrides: {
+        goal: { name: 'Test', description: 'Test Goal' },
+        headless: true
+      }
     });
 
     // Verify
@@ -116,10 +118,6 @@ describe('Explore vs Execute Mode', () => {
       name: 'Cached Test',
       description: 'Test with cache',
       goal: { name: 'Test', description: 'Test Goal' },
-      sessionPlan: {
-         goalSummary: 'Test', cycleDescription: 'Test', cycles: [{ isCompleted: false, cycleSteps: [] }],
-         startedAt: '', lastUpdatedAt: ''
-      }
     };
     const executionPath = {
       units: [{
@@ -146,9 +144,10 @@ describe('Explore vs Execute Mode', () => {
     });
 
     const result = await runAgent({
-      preset,
-      executionPath,
-      headless: true
+      fromPreset: preset,
+      overrides: {
+        headless: true
+      }
     });
 
     // Verify agent completes successfully with preset
@@ -165,10 +164,6 @@ describe('Explore vs Execute Mode', () => {
       name: 'Cached Test',
       description: 'Test with cache',
       goal: { name: 'Test', description: 'Test Goal' },
-      sessionPlan: {
-         goalSummary: 'Test', cycleDescription: 'Test', cycles: [{ isCompleted: false, cycleSteps: [] }],
-         startedAt: '', lastUpdatedAt: ''
-      }
     };
 
     vi.spyOn(observeModule, 'observe').mockResolvedValue({
@@ -182,8 +177,10 @@ describe('Explore vs Execute Mode', () => {
     });
 
     const result = await runAgent({
-      preset,
-      headless: true
+      fromPreset: preset,
+      overrides: {
+        headless: true
+      }
     });
 
     // Verify observation and LLM reasoning
@@ -202,10 +199,6 @@ describe('Explore vs Execute Mode', () => {
       name: 'Self-Healing Test',
       description: 'Test with execution path',
       goal: { name: 'Test', description: 'Test Goal' },
-      sessionPlan: {
-         goalSummary: 'Test', cycleDescription: 'Test', cycles: [{ isCompleted: false, cycleSteps: [] }],
-         startedAt: '', lastUpdatedAt: ''
-      }
     };
     const executionPath = {
       units: [{
@@ -230,9 +223,10 @@ describe('Explore vs Execute Mode', () => {
     });
 
     const result = await runAgent({
-      preset,
-      executionPath,
-      headless: true
+      fromPreset: preset,
+      overrides: {
+        headless: true
+      }
     });
 
     // Verify agent succeeds through explore mode
@@ -275,17 +269,19 @@ describe('Explore vs Execute Mode', () => {
       });
 
     const result = await runAgent({
-      goal: { name: 'Self-Healing Source', description: 'Multi-step goal to record' },
-      headless: true
+      overrides: {
+        goal: { name: 'Self-Healing Source', description: 'Multi-step goal to record' },
+        headless: true
+      }
     });
 
     // Verify: History should contain the steps for potential extraction
     expect(result.success).toBe(true);
     expect(result.history.length).toBeGreaterThanOrEqual(2);
-    
+
     // Verify actions are recorded in history
-    expect(result.history[0].action.type).toBe('click');
-    expect(result.history[1].action.type).toBe('type');
+    expect(result.history[0].action!.type).toBe('click');
+    expect(result.history[1].action!.type).toBe('type');
     
     // In real implementation, extractPathFromHistory(result.history) would create ExecutionPath
     // This validates the history structure is suitable for extraction
@@ -348,9 +344,11 @@ describe('Explore vs Execute Mode', () => {
 
     // Run
     const result = await runAgent({
-      goal: { name: 'Multi-step Flow', description: 'Navigate through steps' },
-      startUrl: 'https://example.com/step1',
-      headless: true
+      overrides: {
+        goal: { name: 'Multi-step Flow', description: 'Navigate through steps' },
+        startUrl: 'https://example.com/step1',
+        headless: true
+      }
     });
 
     // Verify
@@ -363,7 +361,7 @@ describe('Explore vs Execute Mode', () => {
     expect(checkModule.think).toHaveBeenCalledTimes(2);
 
     // Verify first action
-    expect(result.history[0].action.type).toBe('click');
-    expect(result.history[0].action.reason).toBe('Go to next step');
+    expect(result.history[0].action!.type).toBe('click');
+    expect(result.history[0].action!.reason).toBe('Go to next step');
   });
 });

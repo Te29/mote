@@ -11,8 +11,9 @@ import type {
   StepResult,
   PageState,
   EngagementMode,
-  ExecutionStep,
-  ExecutionPath,
+  StepPlan,
+  CyclePlan,
+  SessionPlan,
 } from './index.js';
 import type { InterventionMetrics } from '../prompt.js';
 import type { AgentServices } from './services.js';
@@ -35,23 +36,24 @@ export interface AgentSettings {
   goal?: Goal;
 
   /**
-   * Optional preset with configuration.
-   * IMMUTABLE - set once, never modified (refs only, not data).
+   * Preset information (if loaded from preset).
+   * Used for prompt generation and session planning.
    */
   preset?: Preset;
 
   /**
-   * Preset directory path (for loading referenced files).
-   * IMMUTABLE - set once when preset is selected.
-   */
-  presetDir?: string;
-
-  /**
-   * Loaded execution path from preset (if exists).
+   * Loaded cycle plan from preset (if exists).
    * Used to guide execution.
    * Can be updated during adaptive execution.
    */
-  executionPath?: ExecutionPath;
+  cyclePlan?: CyclePlan;
+
+  /**
+   * Loaded session plan from preset (if exists).
+   * Contains setup/wrapup steps and session-level verification.
+   * Used for session completion verification.
+   */
+  sessionPlan?: SessionPlan;
 
   /**
    * Custom system prompt loaded from preset (if exists).
@@ -162,7 +164,7 @@ export interface AgentRuntimeState {
   lastPageState: PageState | null;
 
   /**
-   * Whether any ExecutionSteps were adapted during this session.
+   * Whether any StepPlans were adapted during this session.
    * Used for self-healing - prompts user to update preset if true.
    * MUTATIONS:
    * - observe.ts: Sets to true when adaptation occurs
@@ -170,10 +172,10 @@ export interface AgentRuntimeState {
   hadAdaptations: boolean;
 
   /**
-   * Current pointer in the execution path.
+   * Current pointer in the cycle plan.
    * [unitIndex, stepIndex?]
-   * - [0] = 1st ExecutionUnit (Step or Loop)
-   * - [1, 2] = 2nd ExecutionUnit (Loop), 3rd step inside it
+   * - [0] = 1st PlanUnit (Step or Loop)
+   * - [1, 2] = 2nd PlanUnit (Loop), 3rd step inside it
    */
   executionPointer: number[];
   

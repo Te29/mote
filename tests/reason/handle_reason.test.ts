@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleReason } from '../../src/handlers/reason.js';
 import type { AgentStateReason } from '../../src/types/state-machine.js';
 import type { AgentContext } from '../../src/types/context.js';
-import type { ExecutionStep, Action, PageState, ExecutionPath } from '../../src/types/index.js';
+import type { StepPlan, Action, PageState, CyclePlan } from '../../src/types/index.js';
 
 describe('handleReason State Handler', () => {
     const mockPageState: PageState = {
@@ -22,7 +22,7 @@ describe('handleReason State Handler', () => {
 
     const cachedAction: Action = { type: 'click', elementId: '#target-btn', reason: 'Cached act' };
 
-    const mockExecutionStep: ExecutionStep = {
+    const mockStepPlan: StepPlan = {
         stepId: 'step-1',
         description: 'Click button',
         url: 'https://original-url.com', // Different from current URL
@@ -33,8 +33,8 @@ describe('handleReason State Handler', () => {
 
     it('should proceed with cached action even if URL is different but element matches', async () => {
         const ctx = {
-            executionPath: {
-                units: [{ type: 'step', step: mockExecutionStep }]
+            cyclePlan: {
+                units: [{ type: 'step', step: mockStepPlan }]
             },
             runtime: {
                 executionPointer: [0],
@@ -62,13 +62,13 @@ describe('handleReason State Handler', () => {
 
     it('should proceed with cached action even if URL is missing in the step', async () => {
         // Step with NO URL
-        const stepNoUrl: ExecutionStep = {
-            ...mockExecutionStep,
+        const stepNoUrl: StepPlan = {
+            ...mockStepPlan,
             url: undefined
         };
 
         const ctx = {
-            executionPath: {
+            cyclePlan: {
                 units: [{ type: 'step', step: stepNoUrl }]
             },
             runtime: {
@@ -95,8 +95,8 @@ describe('handleReason State Handler', () => {
     it('should proceed with cached action if URL exists in pageState but not used for matching', async () => {
         // This is essentially same as first test but confirms the semantic intent
         const result = await handleReason(mockState, {
-            executionPath: {
-                units: [{ type: 'step', step: mockExecutionStep }]
+            cyclePlan: {
+                units: [{ type: 'step', step: mockStepPlan }]
             },
             runtime: { 
                 executionPointer: [0],

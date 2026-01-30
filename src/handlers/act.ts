@@ -231,11 +231,11 @@ export async function handleAct(
     
     // Increment execution pointer if we are following a path
     // Simple top-level increment for now - complex loop logic handled in REASON/Drift
-    if (ctx.executionPath && ctx.runtime.executionPointer.length === 1) {
+    if (ctx.cyclePlan && ctx.runtime.executionPointer.length === 1) {
        // Only auto-increment if we are at top-level linear path
        // Loops require more logic (checking conditions etc) which should happen in REASON
        const currentIdx = ctx.runtime.executionPointer[0];
-       if (currentIdx < ctx.executionPath.units.length) {
+       if (currentIdx < ctx.cyclePlan.units.length) {
           ctx.runtime.executionPointer[0]++;
        }
     }

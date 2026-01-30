@@ -88,6 +88,9 @@ export interface ElementInfo {
  * Used to provide meaningful descriptions for cycles and success states.
  */
 export interface PageContext {
+  /** Current page URL */
+  url?: string;
+
   /** Page title (often contains topic/course name) */
   title: string;
 

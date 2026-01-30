@@ -12,6 +12,7 @@ import type {
   Goal,
   Preset,
   SessionTracker,
+  SessionPlan,
   StepResult,
   Action,
   CycleStrategy,
@@ -232,13 +233,31 @@ export interface ReasonService {
   ): Promise<SessionTracker>;
 
   /**
-   * Validate a session plan structure.
+   * Validate a SessionPlan (blueprint from preset).
+   * Checks if SessionPlan has valid format and required fields.
+   *
+   * @param plan - Session plan to validate
+   * @returns Validation result with errors if invalid
+   */
+  validateSessionPlan(plan: SessionPlan): ValidationResult;
+
+  /**
+   * Validate a SessionTracker (runtime execution state).
    * Checks if SessionTracker has valid format and required fields.
    *
    * @param tracker - Session tracker to validate
    * @returns Validation result with errors if invalid
    */
-  validateSessionPlan(tracker: SessionTracker): ValidationResult;
+  validateSessionTracker(tracker: SessionTracker): ValidationResult;
+
+  /**
+   * Convert SessionPlan (blueprint) to SessionTracker (runtime state).
+   * Initializes empty execution tracking based on the plan structure.
+   *
+   * @param sessionPlan - The blueprint from preset
+   * @returns Fresh SessionTracker ready for execution
+   */
+  initializeTrackerFromPlan(sessionPlan: SessionPlan): SessionTracker;
 
   /**
    * Generate a strategy from first cycle history.

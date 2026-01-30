@@ -40,6 +40,7 @@ describe('Browser Module', () => {
     const config = {
         headless: true,
         slowMo: 0,
+        profilePath: undefined,
         stealth: true,
         timeoutDefault: 1000,
         timeoutNavigation: 1000,

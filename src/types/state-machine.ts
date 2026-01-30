@@ -3,12 +3,14 @@
 // =============================================================================
 // State machine for controlling agent execution flow
 //
-// 6-State Design: CYCLE_START → OBSERVE → REASON → ACT → CYCLE_END → TERMINATED
+// 8-State Design: SETUP → CYCLE_START → OBSERVE → REASON → ACT → CYCLE_END → WRAPUP → TERMINATED
 //
 // States map directly to modules:
+//   - SETUP    → setup handler
 //   - OBSERVE  → observe.ts
 //   - REASON   → reason.ts
 //   - ACT      → act.ts
+//   - WRAPUP   → wrapup handler
 
 import type { Action } from './actions.js';
 import type { PageState } from './page.js';
@@ -17,11 +19,13 @@ import type { PageState } from './page.js';
 // AGENT STATE MACHINE
 // -----------------------------------------------------------------------------
 // The agent operates in distinct phases:
+// - SETUP: Execute session-level setup steps (one-time, before cycles)
 // - CYCLE_START: Beginning of a new cycle (intervention point)
 // - OBSERVE: Observe page state (calls observe module)
 // - REASON: Reason about next action (calls reason module, handles replan internally)
 // - ACT: Execute a browser action (calls act module)
 // - CYCLE_END: End of cycle with result (intervention point)
+// - WRAPUP: Execute session-level wrapup steps (one-time, after all cycles)
 // - TERMINATED: Execution complete (terminal state)
 
 /**
@@ -29,12 +33,19 @@ import type { PageState } from './page.js';
  * Each state represents a distinct phase of execution.
  */
 export type AgentState =
+  | AgentStateSetup
   | AgentStateCycleStart
   | AgentStateObserve
   | AgentStateReason
   | AgentStateAct
   | AgentStateCycleEnd
+  | AgentStateWrapup
   | AgentStateTerminated;
+
+/** Execute session-level setup steps (one-time, before cycles) */
+export interface AgentStateSetup {
+  phase: 'SETUP';
+}
 
 /** Beginning of a cycle (intervention point) */
 export interface AgentStateCycleStart {
@@ -76,6 +87,11 @@ export interface AgentStateCycleEnd {
   detail?: string; // finalAnswer when SUCCESS, error message when FAILURE
 }
 
+/** Execute session-level wrapup steps (one-time, after all cycles) */
+export interface AgentStateWrapup {
+  phase: 'WRAPUP';
+}
+
 /** Execution complete (terminal state) */
 export interface AgentStateTerminated {
   phase: 'TERMINATED';
@@ -92,11 +108,11 @@ export interface AgentStateTerminated {
  * Defines which states can transition to which other states.
  *
  * Flow:
- *   CYCLE_START → OBSERVE → REASON → ACT → OBSERVE → ...
+ *   SETUP → CYCLE_START → OBSERVE → REASON → ACT → OBSERVE → ...
  *                              ↓
  *                         CYCLE_END → CYCLE_START (next cycle)
  *                              ↓
- *                         TERMINATED
+ *                         WRAPUP → TERMINATED
  *
  * REASON can transition to:
  *   - ACT: Execute an action
@@ -105,11 +121,13 @@ export interface AgentStateTerminated {
  *   - TERMINATED: User quit or max steps
  */
 export const VALID_TRANSITIONS: Record<AgentState['phase'], AgentState['phase'][]> = {
+  'SETUP': ['OBSERVE', 'CYCLE_START', 'TERMINATED'],  // SETUP can observe, start cycles, or terminate
   'CYCLE_START': ['OBSERVE', 'TERMINATED'],
   'OBSERVE': ['REASON', 'TERMINATED'],
   'REASON': ['ACT', 'OBSERVE', 'CYCLE_END', 'TERMINATED'],
   'ACT': ['OBSERVE', 'ACT', 'TERMINATED'],  // ACT→ACT for intervention rejection
-  'CYCLE_END': ['CYCLE_START', 'OBSERVE', 'ACT', 'TERMINATED'],  // OBSERVE/ACT for intervention rejection
+  'CYCLE_END': ['CYCLE_START', 'WRAPUP', 'OBSERVE', 'ACT', 'TERMINATED'],  // Can go to wrapup, next cycle, or intervention rejection
+  'WRAPUP': ['OBSERVE', 'TERMINATED'],  // WRAPUP can observe for steps, or terminate
   'TERMINATED': [],
 };
 

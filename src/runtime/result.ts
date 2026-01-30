@@ -10,13 +10,13 @@ import * as path from 'path';
 import type {
   Goal,
   Preset,
-  ExecutionStep,
-  ExecutionPath,
+  StepPlan,
+  CyclePlan,
   SessionTracker,
   StepResult,
   AgentResult,
   EngagementMode,
-  ExecutionUnit,
+  PlanUnit,
 } from '../types/index.js';
 import { getCompletedCycles } from '../types/index.js';
 import { shouldIntervene, promptForPresetSave } from '../interaction.js';
@@ -36,7 +36,7 @@ export interface ResultContext {
   tracker: SessionTracker;
   history: StepResult[];
   hadAdaptations: boolean;
-  executionPath?: ExecutionPath;
+  cyclePlan?: CyclePlan;
   preset?: Preset;
   presetDir?: string;
   customSystemPrompt?: string;
@@ -49,35 +49,36 @@ export interface ResultContext {
 // -----------------------------------------------------------------------------
 
 /**
- * Extract an ExecutionPath from successful run history.
+ * Extract a CyclePlan from successful run history.
  * This enables self-healing: learned paths can be cached in presets.
  *
  * @param history - Array of successful step results from an Explore mode run
- * @returns ExecutionPath object suitable for preset.executionPath
+ * @returns CyclePlan object suitable for preset.cyclePlan
  */
-export function extractPathFromHistory(history: StepResult[]): ExecutionPath {
+export function extractPathFromHistory(history: StepResult[]): CyclePlan {
   const steps = history
-    .filter((step) => step.action.type !== 'wait') // Skip wait actions
+    .filter((step) => step.action && step.action.type !== 'wait') // Skip wait actions and steps without actions
+    .filter((step) => step.pageStateBefore) // Skip steps without page state
     .map((step, index) => {
       // Find the element that was targeted (in the BEFORE state, where it exists)
-      const elementIndex = parseInt(step.action.elementId || '0', 10);
-      const targetElement = step.pageStateBefore.elements.find(
+      const elementIndex = parseInt(step.action!.elementId || '0', 10);
+      const targetElement = step.pageStateBefore!.elements.find(
         (el: import('../types/index.js').ElementInfo) => el.index === elementIndex
       );
 
       return {
         stepId: `learned-${index + 1}`,
-        description: step.action.reason || `Step ${index + 1}`,
-        url: step.pageStateBefore.url,  // URL where we need to be to execute this action
+        description: step.action!.reason || `Step ${index + 1}`,
+        url: step.pageStateBefore!.url,  // URL where we need to be to execute this action
         targetElementSelector: targetElement?.selector || '',
-        action: step.action,
-        expectedPageState: step.pageStateBefore,  // State we expect BEFORE executing the action
-      } as ExecutionStep;
+        action: step.action!,
+        expectedPageState: step.pageStateBefore!,  // State we expect BEFORE executing the action
+      } as StepPlan;
     })
     .filter((step) => step.targetElementSelector !== '' && !/^\d+$/.test(step.targetElementSelector || '')); // Only include steps with valid, non-index selectors
-    
+
     return {
-      units: steps.map(step => ({ type: 'step', step } as ExecutionUnit))
+      units: steps.map(step => ({ type: 'step', step } as PlanUnit))
     };
 }
 
@@ -103,7 +104,7 @@ export async function assembleResult(
     tracker,
     history,
     hadAdaptations,
-    executionPath,
+    cyclePlan,
     preset,
     presetDir,
     customSystemPrompt,
@@ -130,10 +131,10 @@ export async function assembleResult(
   // ---------------------------------------------------------------------------
   // SELF-HEALING: Save/Update preset after successful run
   // Offer to save if:
-  // 1. Ran in Explore mode (!executionPath) - learned new path
+  // 1. Ran in Explore mode (!cyclePlan) - learned new path
   // 2. Ran in Execute with adaptations (hadAdaptations) - updated existing path
   // ---------------------------------------------------------------------------
-  if (success && history.length > 0 && (hadAdaptations || !executionPath)) {
+  if (success && history.length > 0 && (hadAdaptations || !cyclePlan)) {
     const learnedPath = extractPathFromHistory(history);
 
     if (learnedPath.units.length > 0 && shouldIntervene(engagementMode, 'TERMINAL')) {
@@ -157,7 +158,6 @@ export async function assembleResult(
             description: presetGoal.description,
             goal: presetGoal,
             startUrl,
-            sessionPlan: tracker,
           };
           const savedPath = savePreset(newPreset, learnedPath, customSystemPrompt, saveResponse.name);
           console.log(`\n💾 New preset saved to: ${savedPath}`);

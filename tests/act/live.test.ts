@@ -14,6 +14,7 @@ describe('Act Module - Live Browser Tests', () => {
     browserSession = await launchBrowser({
       headless: true,
       slowMo: 100,
+      profilePath: undefined,
       stealth: true,
       timeoutDefault: 10000,
       timeoutNavigation: 10000,

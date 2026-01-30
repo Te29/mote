@@ -117,11 +117,46 @@ export interface ThinkResultFail {
 // This is the "Code" or "Recipe" the agent follows.
 
 /**
- * Dynamic condition for loop continuation.
+ * Loop continuation configuration.
+ * Uses script-based verification with optional iteration safety limit.
  */
-export type LoopCondition =
-  | { type: 'element_exists' | 'element_missing'; selector: string; maxIterationsSafety?: number }
-  | { type: 'custom_script'; script: string; maxIterationsSafety?: number };
+export interface LoopCondition {
+  /** Verification script configuration */
+  verification: VerificationConfig;
+
+  /** Maximum iterations as safety limit (default: 100) */
+  maxIterations?: number;
+}
+
+/**
+ * Script-based verification configuration.
+ * Scripts execute in browser context and must return boolean.
+ */
+export interface VerificationConfig {
+  /**
+   * JavaScript code to execute in browser context.
+   * Must return boolean: true = pass, false = fail.
+   * Throw Error for critical failures.
+   *
+   * @example
+   * "() => document.querySelector('.success') !== null"
+   *
+   * @example
+   * "() => document.querySelectorAll('.cart-item').length > 0"
+   */
+  script: string;
+
+  /** Human-readable description of what's being verified */
+  description?: string;
+
+  /**
+   * Strategy when script fails or throws error.
+   * - 'llm': Fall back to LLM reasoning (default)
+   * - 'continue': Treat as success, continue execution
+   * - 'fail': Treat as failure, terminate or exit loop
+   */
+  onFailure?: 'llm' | 'continue' | 'fail';
+}
 
 export interface PromptRef {
   /** Which preset's prompt file */
@@ -141,7 +176,7 @@ export interface PromptRef {
  * Blueprint for a single step, independent of execution results.
  * Defines WHAT to do, not what happened.
  */
-export interface ExecutionStep {
+export interface StepPlan {
   /** Global unique ID */
   stepId: string;
   
@@ -183,7 +218,7 @@ export interface ExecutionStep {
 /** 
  * Loop Block: A sequence of steps that repeats.
  */
-export interface LoopBlock {
+export interface LoopPlan {
   /** Global unique ID */
   loopId: string;
   
@@ -194,27 +229,95 @@ export interface LoopBlock {
   loopCondition?: LoopCondition;
   
   /** Sequence of steps inside the loop */
-  steps: ExecutionStep[];
+  steps: StepPlan[];
 }
 
 /** 
- * ExecutionUnit: Unified sequential unit.
+ * PlanUnit: Unified sequential unit.
  * Can be a single atomic step or a complex block (loop).
  */
-export type ExecutionUnit =
-  | { type: 'step'; step: ExecutionStep }
-  | { type: 'loop'; loop: LoopBlock };
+export type PlanUnit =
+  | { type: 'step'; step: StepPlan }
+  | { type: 'loop'; loop: LoopPlan };
 
-/** 
- * ExecutionPath: Blueprint layer.
- * Arrangement of execution units in order.
+/**
+ * CyclePlan: Blueprint for ONE cycle.
+ * Contains the sequence of steps/loops that make up a single cycle.
+ *
+ * stepId convention: Use descriptive strings (e.g., "fill-username", "click-submit")
+ * to support dynamic blueprints where step count is uncertain.
  */
-export interface ExecutionPath {
-  /** Global sequence guarantee */
-  units: ExecutionUnit[];
-  
-  /** Optional starting URL for this entire path */
+export interface CyclePlan {
+  /** Cycle execution units (steps and loops) */
+  units: PlanUnit[];
+
+  /** Optional starting URL for this cycle */
   startUrl?: string;
+
+  /**
+   * Optional verification to run before marking cycle complete.
+   * Executes after LLM thinks GOAL_SUCCESS but before CYCLE_END transition.
+   * If verification fails, returns to OBSERVE to continue working.
+   */
+  verification?: VerificationConfig;
+}
+
+/**
+ * SessionPlan: Complete blueprint for session execution.
+ * Human-authored, stored in preset files.
+ * Self-contained with all metadata needed for execution.
+ *
+ * Structure:
+ *   setupSteps[]  → One-time setup before cycles (flat, no loops)
+ *   cyclePlan     → Blueprint for each cycle (can contain loops)
+ *   wrapupSteps[] → One-time finalization after cycles (flat, no loops)
+ *
+ * Execution flow: setup → cycles (repeat cyclePlan) → wrapup
+ */
+export interface SessionPlan {
+  /**
+   * High-level description of what this session accomplishes.
+   * Used for runtime tracking and LLM prompts.
+   */
+  goalSummary: string;
+
+  /**
+   * Description of what one cycle accomplishes.
+   * Used for cycle tracking and prompt context.
+   */
+  cycleDescription: string;
+
+  /**
+   * Session-level setup steps (executed once before cycles).
+   * Flat array - no loops allowed in setup phase.
+   */
+  setupSteps?: StepPlan[];
+
+  /**
+   * Blueprint for each cycle (the repeatable part).
+   * Can contain steps and loops.
+   */
+  cyclePlan: CyclePlan;
+
+  /**
+   * How many times to execute the cyclePlan.
+   * Default: 1 (single cycle execution)
+   * Use -1 for unlimited cycles (keep going until verification passes)
+   */
+  numberOfCycles?: number;
+
+  /**
+   * Session-level wrapup steps (executed once after all cycles complete).
+   * Flat array - no loops allowed in wrapup phase.
+   */
+  wrapupSteps?: StepPlan[];
+
+  /**
+   * Optional verification to run when all cycles complete.
+   * Executes before final TERMINATED transition.
+   * More comprehensive than cycle verification - can validate entire session outcome.
+   */
+  verification?: VerificationConfig;
 }
 
 // -----------------------------------------------------------------------------

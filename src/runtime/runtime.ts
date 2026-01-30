@@ -13,8 +13,9 @@ import type { Page } from 'playwright';
 import type {
   Goal,
   Preset,
-  ExecutionStep,
-  ExecutionPath,
+  StepPlan,
+  CyclePlan,
+  SessionPlan,
   SessionTracker,
   StepResult,
   AgentState,
@@ -31,6 +32,8 @@ import {
   stopInterruptListener,
 } from '../interaction.js';
 import {
+  handleSetup,
+  handleWrapup,
   handleCycleStart,
   handleCycleEnd,
   handleObserve,
@@ -50,7 +53,8 @@ export interface RuntimeSettings {
   goal?: Goal;
   preset?: Preset;
   presetDir?: string;
-  executionPath?: ExecutionPath;
+  cyclePlan?: CyclePlan;
+  sessionPlan?: SessionPlan;
   customSystemPrompt?: string;
   engagementMode: EngagementMode;
   verbose: boolean;
@@ -185,11 +189,14 @@ export async function executeRuntime(
   }
 
   // Start State Machine
-  // Initial state is CYCLE_START (Cycle 0)
-  let currentState: AgentState = {
-    phase: 'CYCLE_START',
-    cycleIndex: 0,
-  };
+  // Initial state is SETUP if setupSteps exist, otherwise CYCLE_START (Cycle 0)
+  let currentState: AgentState =
+    ctx.sessionPlan?.setupSteps && ctx.sessionPlan.setupSteps.length > 0
+      ? { phase: 'SETUP' }
+      : {
+          phase: 'CYCLE_START',
+          cycleIndex: 0,
+        };
 
   // Setup Interrupt Listener
   startInterruptListener();
@@ -206,6 +213,10 @@ export async function executeRuntime(
     // Execute Handler based on current phase
     try {
       switch (currentState.phase) {
+        case 'SETUP':
+          currentState = await handleSetup(currentState, ctx);
+          break;
+
         case 'CYCLE_START':
           currentState = await handleCycleStart(currentState, ctx);
           break;
@@ -226,6 +237,10 @@ export async function executeRuntime(
           currentState = await handleCycleEnd(currentState, ctx);
           break;
 
+        case 'WRAPUP':
+          currentState = await handleWrapup(currentState, ctx);
+          break;
+
         case 'TERMINATED':
           // Exit loop
           stopInterruptListener();
@@ -237,7 +252,7 @@ export async function executeRuntime(
             history: ctx.history,
             hadAdaptations: ctx.runtime.hadAdaptations,
           };
-        
+
         default:
           throw new Error(`Unknown state phase: ${(currentState as any).phase}`);
       }
@@ -248,7 +263,13 @@ export async function executeRuntime(
       // Update Cycle Index logic is handled within handlers (e.g., ACT -> OBSERVE increments cycle)
       // Verify consistency?
       const expectedCycle = getCurrentCycleIndex(ctx.tracker);
-      if (currentState.phase !== 'TERMINATED' && currentState.cycleIndex !== expectedCycle) {
+      if (
+        currentState.phase !== 'TERMINATED' &&
+        currentState.phase !== 'SETUP' &&
+        currentState.phase !== 'WRAPUP' &&
+        'cycleIndex' in currentState &&
+        currentState.cycleIndex !== expectedCycle
+      ) {
         // Warn or correct? Handlers should manage this.
         // reason.ts handles replanning which might reset cycles, so strict check might be flaky.
       }

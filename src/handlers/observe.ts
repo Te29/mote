@@ -94,12 +94,12 @@ export async function handleObserve(
   
   // If we are following an execution path, look for the specific target
   // If we are following an execution path, look for the specific target
-  if (ctx.executionPath && ctx.runtime.executionPointer) {
+  if (ctx.cyclePlan && ctx.runtime.executionPointer) {
     const ptr = ctx.runtime.executionPointer;
     const unitIndex = ptr[0];
 
-    if (unitIndex < ctx.executionPath.units.length) {
-      const unit = ctx.executionPath.units[unitIndex];
+    if (unitIndex < ctx.cyclePlan.units.length) {
+      const unit = ctx.cyclePlan.units[unitIndex];
       let currentStep: any = null;
 
       if (unit.type === 'step') {

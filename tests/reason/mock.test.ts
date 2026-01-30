@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Goal, PageState, SessionTracker, Action } from '../../src/types/index.js';
+import type { Goal, PageState, SessionTracker, SessionPlan, Action } from '../../src/types/index.js';
 import type { InterventionMetrics } from '../../src/prompt.js';
 import OpenAI from 'openai';
 import {
@@ -31,7 +31,13 @@ describe('Reason Module', () => {
         ]
     };
 
-    const mockPlan: SessionTracker = {
+    const mockPlan: SessionPlan = {
+        goalSummary: 'Test goal summary',
+        cycleDescription: 'Test cycle',
+        cyclePlan: { units: [] }
+    };
+
+    const mockTracker: SessionTracker = {
         goalSummary: 'Test goal summary',
         cycleDescription: 'Test cycle',
         cycles: [{ isCompleted: false, cycleSteps: [] }],
@@ -75,7 +81,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
+            const result = await think(mockPageState, mockGoal, undefined, mockTracker, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
             
             expect(result.type).toBe('ACTION');
             if (result.type === 'ACTION') {
@@ -97,7 +103,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
+            const result = await think(mockPageState, mockGoal, undefined, mockTracker, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('GOAL_SUCCESS');
             if (result.type === 'GOAL_SUCCESS') {
@@ -114,7 +120,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
+            const result = await think(mockPageState, mockGoal, undefined, mockTracker, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('FAIL');
         });
@@ -135,7 +141,7 @@ describe('Reason Module', () => {
             
             mockCreate.mockResolvedValue(invalidResponse);
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
+            const result = await think(mockPageState, mockGoal, undefined, mockTracker, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('FAIL');
             expect(mockCreate).toHaveBeenCalledTimes(3); // Should have retried
@@ -172,7 +178,7 @@ describe('Reason Module', () => {
                 }]
             });
 
-            const result = await think(mockPageState, mockGoal, undefined, mockPlan, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
+            const result = await think(mockPageState, mockGoal, undefined, mockTracker, [], client, mockMetrics, { tokenMarkdown: 1000, tokenElements: 1000, tokenMaxElements: 50, tokenHistory: 500 });
 
             expect(result.type).toBe('ACTION');
             expect(mockCreate).toHaveBeenCalledTimes(2);
@@ -259,7 +265,7 @@ describe('Reason Module', () => {
         });
 
         it('should reject plan with no cycles', () => {
-            const badPlan = { ...mockPlan, cycles: [] };
+            const badPlan = { ...mockPlan, cyclePlan: { units: [] } };
             const result = validateSessionPlan(badPlan);
             expect(result.valid).toBe(false);
         });

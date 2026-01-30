@@ -4,17 +4,17 @@
  * Structure:
  *   presets/
  *   └── {preset-name}/
- *       ├── preset.json           (required)
- *       ├── execution-path.json   (optional)
- *       └── system-prompt.md      (optional)
+ *       ├── preset.json         (required)
+ *       ├── session-plan.json   (optional - session blueprint)
+ *       └── system-prompt.md    (optional)
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import type {
   Preset,
-  ExecutionStep,
-  ExecutionPath
+  SessionPlan,
+  CyclePlan
 } from '../types/index.js';
 
 // Default presets directory relative to project root
@@ -32,12 +32,12 @@ function ensurePresetsDir(): void {
 /**
  * List all available presets from the presets directory.
  * Scans for preset folders containing preset.json files.
- * @returns Array of preset metadata (name, description, hasExecutionPath)
+ * @returns Array of preset metadata (name, description, hasSessionPlan)
  */
 export function listPresets(): Array<{
   name: string;
   description: string;
-  hasExecutionPath: boolean;
+  hasSessionPlan: boolean;
   presetDir: string;
 }> {
   ensurePresetsDir();
@@ -47,7 +47,7 @@ export function listPresets(): Array<{
   const presets: Array<{
     name: string;
     description: string;
-    hasExecutionPath: boolean;
+    hasSessionPlan: boolean;
     presetDir: string;
   }> = [];
 
@@ -66,7 +66,7 @@ export function listPresets(): Array<{
       presets.push({
         name: preset.name,
         description: preset.description,
-        hasExecutionPath: !!preset.executionPathRef,
+        hasSessionPlan: !!preset.sessionPlanRef,
         presetDir,
       });
     } catch {
@@ -118,26 +118,26 @@ export function loadPresetFromPath(presetDir: string): Preset | null {
 }
 
 /**
- * Load execution path from preset directory.
+ * Load session plan from preset directory.
  * @param presetDir - Path to preset directory
- * @param executionPathRef - Reference from preset (e.g., "./execution-path.json")
- * @returns ExecutionPath object, or null if not found
+ * @param sessionPlanRef - Reference from preset (e.g., "./session-plan.json")
+ * @returns SessionPlan object, or null if not found
  */
-export function loadExecutionPath(
+export function loadSessionPlan(
   presetDir: string,
-  executionPathRef?: string,
-): ExecutionPath | null {
-  if (!executionPathRef) {
+  sessionPlanRef?: string,
+): SessionPlan | null {
+  if (!sessionPlanRef) {
     return null;
   }
 
-  const executionPathFile = path.join(presetDir, executionPathRef);
+  const sessionPlanFile = path.join(presetDir, sessionPlanRef);
 
   try {
-    const content = fs.readFileSync(executionPathFile, 'utf-8');
-    return JSON.parse(content) as ExecutionPath;
+    const content = fs.readFileSync(sessionPlanFile, 'utf-8');
+    return JSON.parse(content) as SessionPlan;
   } catch {
-    console.warn(`Warning: Could not load execution path from: ${executionPathFile}`);
+    console.warn(`Warning: Could not load session plan from: ${sessionPlanFile}`);
     return null;
   }
 }
@@ -169,14 +169,14 @@ export function loadSystemPrompt(
 /**
  * Save a preset to the presets directory.
  * @param preset - The preset to save
- * @param executionPath - Optional execution path to save
+ * @param sessionPlan - Optional session plan to save
  * @param systemPrompt - Optional system prompt to save
  * @param folderName - Optional custom folder name (defaults to preset.name)
  * @returns The path to the preset directory
  */
 export function savePreset(
   preset: Preset,
-  executionPath?: ExecutionPath,
+  sessionPlan?: SessionPlan | CyclePlan,
   systemPrompt?: string,
   folderName?: string,
 ): string {
@@ -197,8 +197,8 @@ export function savePreset(
 
   // Save preset.json
   const presetCopy = { ...preset };
-  if (executionPath && executionPath.units.length > 0) {
-    presetCopy.executionPathRef = './execution-path.json';
+  if (sessionPlan) {
+    presetCopy.sessionPlanRef = './session-plan.json';
   }
   if (systemPrompt) {
     presetCopy.systemPromptRef = './system-prompt.md';
@@ -207,10 +207,10 @@ export function savePreset(
   const presetFilePath = path.join(presetDir, 'preset.json');
   fs.writeFileSync(presetFilePath, JSON.stringify(presetCopy, null, 2));
 
-  // Save execution-path.json if provided
-  if (executionPath && executionPath.units.length > 0) {
-    const executionPathFile = path.join(presetDir, 'execution-path.json');
-    fs.writeFileSync(executionPathFile, JSON.stringify(executionPath, null, 2));
+  // Save session-plan.json if provided
+  if (sessionPlan) {
+    const sessionPlanFile = path.join(presetDir, 'session-plan.json');
+    fs.writeFileSync(sessionPlanFile, JSON.stringify(sessionPlan, null, 2));
   }
 
   // Save system-prompt.md if provided

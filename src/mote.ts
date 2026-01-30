@@ -7,7 +7,7 @@ import type { AgentResult, SessionTracker } from './types/index.js';
 import { createTimestamp } from './types/index.js';
 import {
   resolveConfig,
-  type ConfigInput,
+  type UserInput,
   type ResolvedConfig,
 } from './config/index.js';
 import {
@@ -37,8 +37,8 @@ config();
 function extractSettings(config: ResolvedConfig): RuntimeSettings {
   return {
     goal: config.goal,
-    presetDir: config.presetDir,
-    executionPath: config.executionPath,
+    cyclePlan: config.sessionPlan?.cyclePlan,
+    sessionPlan: config.sessionPlan,
     customSystemPrompt: config.systemPrompt,
     engagementMode: config.engagementMode,
     verbose: config.verbose,
@@ -139,14 +139,14 @@ function printBanner(config: ResolvedConfig, tracker: SessionTracker): void {
  * - Phase 5: Result Assembly
  */
 export async function runAgent(
-  configInput: ConfigInput = {},
+  userInput: UserInput = {},
 ): Promise<AgentResult> {
   const startTime = Date.now();
 
   // ---------------------------------------------------------------------------
   // Phase 1: Configuration Resolution
   // ---------------------------------------------------------------------------
-  const config = await resolveConfig(configInput);
+  const { config, presetMetadata } = await resolveConfig(userInput);
   logVariable('RESOLVED CONFIG', config);
 
   // ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ export async function runAgent(
   // ---------------------------------------------------------------------------
   let bootstrapResult: BootstrapResult;
   try {
-    bootstrapResult = await bootstrap(config);
+    bootstrapResult = await bootstrap(config, presetMetadata);
   } catch (error) {
     return createBootstrapErrorResult(error, startTime, config);
   }
@@ -223,8 +223,6 @@ export async function runAgent(
     ...runtimeResult,
     startUrl: bootstrapResult.startUrl,
     startTime: bootstrapResult.startTime,
-    executionPath: config.executionPath,
-    presetDir: config.presetDir,
     customSystemPrompt: config.systemPrompt,
     engagementMode: config.engagementMode,
     goal: config.goal,

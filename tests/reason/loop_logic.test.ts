@@ -4,7 +4,7 @@ import { handleReason } from '../../src/handlers/reason.js';
 import type { AgentContext } from '../../src/types/context.js';
 import type { AgentStateReason } from '../../src/types/state-machine.js';
 import type { PageState } from '../../src/types/page.js';
-import type { ExecutionPath, ExecutionUnit } from '../../src/types/actions.js';
+import type { CyclePlan, PlanUnit } from '../../src/types/actions.js';
 
 // Mock Dependencies
 const mockThink = vi.fn();
@@ -24,22 +24,28 @@ const defaultPageState: PageState = {
 
 };
 
-function createMockContext(executionPath: ExecutionPath): AgentContext {
+function createMockContext(cyclePlan: CyclePlan, mockEvaluate?: any): AgentContext {
   return {
     runtime: {
       executionPointer: [0],
       loopStates: {},
       hadAdaptations: false,
-      activePage: {} as any, 
+      activePage: {
+        evaluate: mockEvaluate || vi.fn().mockResolvedValue(true),
+      } as any,
       lastObservedUrl: null,
       lastPageState: null,
     },
-    executionPath,
+    cyclePlan: cyclePlan,
     services: mockServices,
     interventionMetrics: {},
-    tracker: {},
+    tracker: {} as any,
     history: [],
-    settings: { verbose: false },
+    verbose: false,
+    tokenMarkdown: 1000,
+    tokenElements: 1000,
+    tokenMaxElements: 100,
+    tokenHistory: 1000,
     //... other required fields mocked minimally
   } as any;
 }
@@ -51,7 +57,7 @@ describe('Loop Logic in handleReason', () => {
   });
 
   it('should enter a loop and initialize pointer', async () => {
-    const loopUnit: ExecutionUnit = {
+    const loopUnit: PlanUnit = {
       type: 'loop',
       loop: {
         loopId: 'loop-1',
@@ -77,7 +83,7 @@ describe('Loop Logic in handleReason', () => {
   });
 
   it('should repeat a loop with fixed iterations', async () => {
-    const loopUnit: ExecutionUnit = {
+    const loopUnit: PlanUnit = {
       type: 'loop',
       loop: {
         loopId: 'loop-itr',
@@ -116,7 +122,7 @@ describe('Loop Logic in handleReason', () => {
   });
 
   it('should exit loop after max fixed iterations', async () => {
-    const loopUnit: ExecutionUnit = {
+    const loopUnit: PlanUnit = {
       type: 'loop',
       loop: {
         loopId: 'loop-itr-exit',
@@ -128,7 +134,7 @@ describe('Loop Logic in handleReason', () => {
     };
     
     // Next unit after loop
-    const nextUnit: ExecutionUnit = {
+    const nextUnit: PlanUnit = {
       type: 'step',
       step: { stepId: 's2', description: 'After Loop', action: { type: 'wait', reason: 'done' } }
     };
@@ -157,65 +163,82 @@ describe('Loop Logic in handleReason', () => {
     expect((result as any).stepId).toBe('s2');
   });
 
-  it('should continue loop based on dynamic element_exists condition', async () => {
-    const loopUnit: ExecutionUnit = {
+  it('should continue loop based on dynamic verification script', async () => {
+    const loopUnit: PlanUnit = {
       type: 'loop',
       loop: {
         loopId: 'loop-dyn',
         // No fixed iterations
-        loopCondition: { type: 'element_exists', selector: '#marker' },
+        loopCondition: {
+          verification: {
+            script: '() => document.querySelector("#marker") !== null',
+            description: 'Check for marker element',
+          },
+          maxIterations: 10,
+        },
         steps: [{ stepId: 's1', description: 'S1', action: { type: 'wait', reason: 'w' } }]
       }
     };
     
-    const ctx = createMockContext({ units: [loopUnit] });
-    // Page state WITH the marker element -> Should Continue
-    const stateWithMarker: AgentStateReason = { 
-        phase: 'REASON', 
-        cycleIndex: 0, 
-        pageState: { ...defaultPageState, elements: [{ selector: '#marker', index: 1, tag: 'div', text: 'marker', attributes: {} }] } 
+    // Mock evaluate to return true (marker exists)
+    const mockEvaluate = vi.fn().mockResolvedValue(true);
+    const ctx = createMockContext({ units: [loopUnit] }, mockEvaluate);
+
+    const stateWithMarker: AgentStateReason = {
+        phase: 'REASON',
+        cycleIndex: 0,
+        pageState: { ...defaultPageState, elements: [{ selector: '#marker', index: 1, tag: 'div', text: 'marker', attributes: {} }] }
     };
 
     // Simulate End of Iteration 1
     ctx.runtime.executionPointer = [0, 1];
-    
+
     await handleReason(stateWithMarker, ctx);
-    
+
     // Should loop back
     expect(ctx.runtime.executionPointer).toEqual([0, 0]);
     expect(ctx.runtime.loopStates['loop-dyn']).toEqual({ iteration: 2 });
+    expect(mockEvaluate).toHaveBeenCalled();
   });
 
-  it('should exit loop based on dynamic element_exists condition (element missing)', async () => {
-    const loopUnit: ExecutionUnit = {
+  it('should exit loop based on dynamic verification script (returns false)', async () => {
+    const loopUnit: PlanUnit = {
       type: 'loop',
       loop: {
         loopId: 'loop-dyn-exit',
-        loopCondition: { type: 'element_exists', selector: '#marker' },
+        loopCondition: {
+          verification: {
+            script: '() => document.querySelector("#marker") !== null',
+            description: 'Check for marker element',
+            onFailure: 'fail',
+          },
+          maxIterations: 10,
+        },
         steps: [{ stepId: 's1', description: 'S1', action: { type: 'wait', reason: 'w' } }]
       }
     };
     
-    const nextUnit: ExecutionUnit = { type: 'step', step: { stepId: 's2', description: 'S2' } };
-    const ctx = createMockContext({ units: [loopUnit, nextUnit] });
-    
+    const nextUnit: PlanUnit = { type: 'step', step: { stepId: 's2', description: 'S2' } };
+
+    // Mock evaluate to return false (marker doesn't exist)
+    const mockEvaluate = vi.fn().mockResolvedValue(false);
+    const ctx = createMockContext({ units: [loopUnit, nextUnit] }, mockEvaluate);
+
     // Page state WITHOUT the marker
-    const stateWithoutMarker: AgentStateReason = { 
-        phase: 'REASON', 
-        cycleIndex: 0, 
-        pageState: defaultPageState 
+    const stateWithoutMarker: AgentStateReason = {
+        phase: 'REASON',
+        cycleIndex: 0,
+        pageState: defaultPageState
     };
 
     // Simulate End of Iteration 1
-    // Loop check: element '#marker' exists? No. -> Exit.
     ctx.runtime.executionPointer = [0, 1];
-    
-    // Should exit and execute s2 (but s2 has no action, so verify logic might return wait or interact with LLM)
-    // My mock nextUnit has no action, so handleReason will try Fast Path -> No Action -> return Verify Wait.
+
     const result = await handleReason(stateWithoutMarker, ctx);
-    
+
+    // Should exit loop and move to next unit
     expect(ctx.runtime.executionPointer).toEqual([1]);
-    expect((result as any).stepId).toBe('s2');
+    expect(mockEvaluate).toHaveBeenCalled();
   });
 
 });

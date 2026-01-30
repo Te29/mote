@@ -23,11 +23,14 @@ import type {
   StepResult,
   ThinkResult,
   SessionTracker,
+  SessionPlan,
+  StepPlan,
+  StepTracker,
   Action,
   ElementInfo,
   CycleStrategy
 } from './types/index.js';
-import { getCurrentCycleIndex } from './types/index.js';
+import { getCurrentCycleIndex, createTimestamp } from './types/index.js';
 import {
   buildExecutionPrompt,
   buildDriftAnalysisPrompt,
@@ -480,10 +483,74 @@ export async function generatePlan(
 }
 
 // -----------------------------------------------------------------------------
-// VALIDATE SESSION PLAN
+// VALIDATE SESSION PLAN (Blueprint from preset)
 // -----------------------------------------------------------------------------
 
-export function validateSessionPlan(tracker: SessionTracker): ValidationResult {
+export function validateSessionPlan(plan: SessionPlan | SessionTracker): ValidationResult {
+  const errors: string[] = [];
+
+  // Validate required metadata
+  if (!plan.goalSummary || typeof plan.goalSummary !== 'string' || plan.goalSummary.trim() === '') {
+    errors.push('goalSummary is required and must be a non-empty string');
+  }
+
+  if (!plan.cycleDescription || typeof plan.cycleDescription !== 'string' || plan.cycleDescription.trim() === '') {
+    errors.push('cycleDescription is required and must be a non-empty string');
+  }
+
+  // Validate cyclePlan (for SessionPlan) or cycles (for SessionTracker)
+  if ('cyclePlan' in plan) {
+    // SessionPlan validation
+    if (!plan.cyclePlan) {
+      errors.push('cyclePlan is required');
+    } else {
+      if (!Array.isArray(plan.cyclePlan.units)) {
+        errors.push('cyclePlan.units must be an array');
+      } else if (plan.cyclePlan.units.length === 0) {
+        errors.push('cyclePlan.units must contain at least one unit');
+      }
+    }
+  } else if ('cycles' in plan) {
+    // SessionTracker validation
+    if (!Array.isArray(plan.cycles)) {
+      errors.push('cycles must be an array');
+    } else if (plan.cycles.length === 0) {
+      errors.push('cycles must contain at least one cycle');
+    }
+  } else {
+    errors.push('Either cyclePlan or cycles is required');
+  }
+
+  // Validate setupSteps if present
+  if (plan.setupSteps && !Array.isArray(plan.setupSteps)) {
+    errors.push('setupSteps must be an array');
+  }
+
+  // Validate wrapupSteps if present
+  if (plan.wrapupSteps && !Array.isArray(plan.wrapupSteps)) {
+    errors.push('wrapupSteps must be an array');
+  }
+
+  // Validate numberOfCycles if present (SessionPlan only)
+  if ('numberOfCycles' in plan && plan.numberOfCycles !== undefined) {
+    if (typeof plan.numberOfCycles !== 'number') {
+      errors.push('numberOfCycles must be a number');
+    } else if (plan.numberOfCycles !== -1 && plan.numberOfCycles < 1) {
+      errors.push('numberOfCycles must be -1 (unlimited) or >= 1');
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// VALIDATE SESSION TRACKER (Runtime execution state)
+// -----------------------------------------------------------------------------
+
+export function validateSessionTracker(tracker: SessionTracker): ValidationResult {
   const errors: string[] = [];
 
   if (!tracker.goalSummary || typeof tracker.goalSummary !== 'string' || tracker.goalSummary.trim() === '') {
@@ -511,6 +578,45 @@ export function validateSessionPlan(tracker: SessionTracker): ValidationResult {
   return {
     valid: errors.length === 0,
     errors,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// CONVERT SESSION PLAN TO TRACKER
+// -----------------------------------------------------------------------------
+
+/**
+ * Convert SessionPlan (blueprint) to SessionTracker (runtime state).
+ * Initializes empty execution tracking based on the plan structure.
+ *
+ * @param sessionPlan - The blueprint from preset
+ * @returns Fresh SessionTracker ready for execution
+ */
+export function initializeTrackerFromPlan(sessionPlan: SessionPlan): SessionTracker {
+  const numberOfCycles = sessionPlan.numberOfCycles || 1;
+
+  return {
+    // Reference to the blueprint
+    sessionPlan,
+
+    // Copy metadata (for quick access)
+    goalSummary: sessionPlan.goalSummary,
+    cycleDescription: sessionPlan.cycleDescription,
+    cycleStartUrl: sessionPlan.cyclePlan.startUrl,
+
+    // Initialize empty execution arrays (populated during runtime)
+    cycles: Array.from({ length: numberOfCycles === -1 ? 1 : numberOfCycles }, () => ({
+      isCompleted: false,
+      cycleSteps: [],
+    })),
+
+    // Initialize empty setup/wrapup arrays if defined in plan
+    setupSteps: sessionPlan.setupSteps ? [] : undefined,
+    wrapupSteps: sessionPlan.wrapupSteps ? [] : undefined,
+
+    // Initialize timestamps
+    startedAt: createTimestamp(),
+    lastUpdatedAt: createTimestamp(),
   };
 }
 

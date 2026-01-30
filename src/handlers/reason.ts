@@ -8,10 +8,11 @@ import type {
   AgentStateReason,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
-import type { Action, WebAction, ExecutionStep } from '../types/actions.js';
+import type { Action, WebAction, StepPlan } from '../types/actions.js';
 import { createTimestamp } from '../types/session.js';
 import { logVariable } from '../utils/debug.js';
 import { shouldIntervene, requestIntervention, processInterventionControl } from '../interaction.js';
+import { executeVerification } from '../utils/verification.js';
 
 // -----------------------------------------------------------------------------
 // REASON
@@ -26,27 +27,23 @@ export async function handleReason(
   ctx: AgentContext,
 ): Promise<AgentState> {
   // ---------------------------------------------------------------------------
-  // EXECUTION PATH LOGIC (Fast Path)
+  // CYCLE PLAN LOGIC (Fast Path & Blueprint)
   // ---------------------------------------------------------------------------
-  // If we have a preset execution path, we prioritize following it.
+  // If we have a preset cycle plan (Blueprint), we follow it.
   // There are only two outcomes:
   // 1. Elements match exactly -> Use cached action (No LLM)
   // 2. Elements don't match -> Drift Analysis -> Adapt or Terminate
-  
-  // ---------------------------------------------------------------------------
-  // EXECUTION PATH LOGIC (Fast Path & Blueprint)
-  // ---------------------------------------------------------------------------
-  // If we have a preset execution path (Blueprint), we follow it.
+  //
   // Supports linear steps and basic loops via executionPointer.
 
-  if (ctx.executionPath && ctx.runtime.executionPointer) {
+  if (ctx.cyclePlan && ctx.runtime.executionPointer) {
     const ptr = ctx.runtime.executionPointer;
     const unitIndex = ptr[0];
     
     // Safety check
-    if (unitIndex < ctx.executionPath.units.length) {
-      const unit = ctx.executionPath.units[unitIndex];
-      let currentStep: ExecutionStep | null = null;
+    if (unitIndex < ctx.cyclePlan.units.length) {
+      const unit = ctx.cyclePlan.units[unitIndex];
+      let currentStep: StepPlan | null = null;
 
       // 1. RESOLVE CURRENT STEP (Handle Loops)
       if (unit.type === 'step') {
@@ -79,37 +76,42 @@ export async function handleReason(
             }
           } 
           
-          // 2. Check Dynamic Condition (if no fixed iterations or combined?)
-          // Usually loopCondition implies "while". If both exist, maybe AND/OR? 
-          // For now, let's treat explicit 'iterations' as a hard limit (for-loop), 
-          // and loopCondition as a while-clause.
+          // 2. Check Dynamic Condition (script-based verification)
           if (unit.loop.loopCondition) {
             const cond = unit.loop.loopCondition;
-            
+
             // Safety Break
-            const maxSafety = cond.maxIterationsSafety || 10;
+            const maxSafety = cond.maxIterations || 100;
             if (currentIteration >= maxSafety) {
               console.warn(`🛑 Safety limit (${maxSafety}) reached for dynamic loop.`);
               shouldContinue = false;
             } else {
-              // Evaluate Condition
-              switch (cond.type) {
-                case 'element_exists': {
-                  const exists = state.pageState.elements.some(e => e.selector === cond.selector);
-                  shouldContinue = exists;
-                  console.log(`❓ Loop condition (element_exists: ${cond.selector}) = ${exists}`);
-                  break;
+              // Execute script-based verification
+              const verifyResult = await executeVerification(
+                ctx.runtime.activePage,
+                cond.verification,
+                {
+                  pageState: state.pageState,
+                  goal: ctx.goal,
+                  preset: ctx.preset,
+                  tracker: ctx.tracker,
+                  history: ctx.history,
+                  llmClient: ctx.services.llmClient,
+                  metrics: ctx.interventionMetrics,
+                  limits: {
+                    tokenMarkdown: ctx.tokenMarkdown,
+                    tokenElements: ctx.tokenElements,
+                    tokenMaxElements: ctx.tokenMaxElements,
+                    tokenHistory: ctx.tokenHistory,
+                  },
+                  customSystemPrompt: ctx.customSystemPrompt,
                 }
-                case 'element_missing': {
-                  const exists = state.pageState.elements.some(e => e.selector === cond.selector);
-                  shouldContinue = !exists;
-                  console.log(`❓ Loop condition (element_missing: ${cond.selector}) = ${!exists}`);
-                  break;
-                }
-                case 'custom_script':
-                  console.warn('⚠️ Custom script loop conditions not yet supported in fast-path.');
-                  shouldContinue = false; 
-                  break;
+              );
+
+              shouldContinue = verifyResult.passed;
+              console.log(`❓ Loop condition (${cond.verification.description || 'verification'}) = ${verifyResult.passed} [${verifyResult.method}]`);
+              if (verifyResult.error) {
+                console.log(`   Error: ${verifyResult.error}`);
               }
             }
           }
@@ -332,13 +334,53 @@ export async function handleReason(
         pageState: state.pageState,
       };
 
-    case 'GOAL_SUCCESS':
+    case 'GOAL_SUCCESS': {
+      // Check if cycle has verification configured
+      if (ctx.cyclePlan?.verification) {
+        console.log(`🔍 Verifying cycle completion...`);
+
+        const verifyResult = await executeVerification(
+          ctx.runtime.activePage,
+          ctx.cyclePlan.verification,
+          {
+            pageState: state.pageState,
+            goal: ctx.goal,
+            preset: ctx.preset,
+            tracker: ctx.tracker,
+            history: ctx.history,
+            llmClient: ctx.services.llmClient,
+            metrics: ctx.interventionMetrics,
+            limits: {
+              tokenMarkdown: ctx.tokenMarkdown,
+              tokenElements: ctx.tokenElements,
+              tokenMaxElements: ctx.tokenMaxElements,
+              tokenHistory: ctx.tokenHistory,
+            },
+            customSystemPrompt: ctx.customSystemPrompt,
+          }
+        );
+
+        if (!verifyResult.passed) {
+          console.log(`❌ Cycle verification failed: ${verifyResult.detail}`);
+
+          // Verification failed - continue working
+          return {
+            phase: 'OBSERVE',
+            cycleIndex: state.cycleIndex,
+          };
+        }
+
+        console.log(`✅ Cycle verification passed [${verifyResult.method}]: ${verifyResult.detail}`);
+      }
+
+      // Verification passed or not configured - mark cycle complete
       return {
         phase: 'CYCLE_END',
         cycleIndex: state.cycleIndex,
         result: 'SUCCESS',
         detail: thinkResult.finalAnswer,
       };
+    }
 
     case 'FAIL': {
       // Parse errors (LLM returned garbage after retries) get an intervention opportunity

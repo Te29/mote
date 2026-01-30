@@ -22,6 +22,7 @@ describe('Observe Module', () => {
     browserSession = await launchBrowser({
       headless: true, // Keep it headless for speed
       slowMo: 0,
+      profilePath: undefined,
       stealth: true,
       timeoutDefault: 10000,
       timeoutNavigation: 10000,

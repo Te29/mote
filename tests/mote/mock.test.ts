@@ -8,7 +8,7 @@ import * as handlers from '../../src/handlers/index.js';
 import {
   type ConfigInput,
   type SessionTracker,
-  type Cycle,
+  type CycleTracker,
   type PageState,
   type ThinkResult,
   type AgentResult,

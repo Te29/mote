@@ -57,6 +57,7 @@ describe('Live Website Functional Tests', () => {
     browserSession = await launchBrowser({
       headless: true,
       slowMo: 100, // Small delay for stability
+      profilePath: undefined,
       stealth: true,
         timeoutDefault: 30000,
         timeoutNavigation: 30000,

@@ -7,7 +7,7 @@
 //
 // =============================================================================
 
-import type { ResolvedConfig, ConfigInput, EngagementMode, Preset } from '../types/index.js';
+import type { ResolvedConfig, UserInput, ConfigurableSettings, EngagementMode, Preset, SessionPlan, ConfigInput } from '../types/index.js';
 import { VALID_ENGAGEMENT_MODES } from '../types/index.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 import * as path from 'path';
@@ -16,7 +16,54 @@ import {
   promptForGoal,
   promptForUrl,
 } from '../interaction.js';
-import { loadExecutionPath, loadSystemPrompt, loadPreset, getPresetsDir } from '../utils/preset.js';
+import { loadSessionPlan, loadSystemPrompt, loadPreset, getPresetsDir } from '../utils/preset.js';
+
+/**
+ * Load preset and resolve all file references.
+ * Returns config values + loaded content.
+ * presetDir is internal - not exposed to caller.
+ */
+async function loadPresetWithFiles(
+  preset: Preset | string
+): Promise<{
+  config: Partial<ConfigurableSettings>;
+  sessionPlan?: SessionPlan;
+  systemPrompt?: string;
+  metadata?: { name: string; dir: string };
+}> {
+  let loadedPreset: Preset;
+  let presetDir: string | undefined;
+
+  // Load preset object
+  if (typeof preset === 'string') {
+    const p = loadPreset(preset);
+    if (!p) throw new Error(`Preset not found: ${preset}`);
+    loadedPreset = p;
+    presetDir = path.join(getPresetsDir(), preset);
+  } else {
+    loadedPreset = preset;
+    // Programmatic preset - can't load files without directory
+  }
+
+  // Load referenced files (only if we have presetDir)
+  const sessionPlan = presetDir && loadedPreset.sessionPlanRef
+    ? loadSessionPlan(presetDir, loadedPreset.sessionPlanRef) ?? undefined
+    : undefined;
+
+  const systemPrompt = presetDir && loadedPreset.systemPromptRef
+    ? loadSystemPrompt(presetDir, loadedPreset.systemPromptRef) ?? undefined
+    : undefined;
+
+  // Extract config (remove metadata and references)
+  const { name, description, sessionPlanRef, systemPromptRef, ...config } = loadedPreset;
+
+  return {
+    config,
+    sessionPlan,
+    systemPrompt,
+    metadata: presetDir ? { name, dir: presetDir } : undefined,
+  };
+}
 
 /**
  * Resolve complete configuration from all sources.
@@ -27,69 +74,41 @@ import { loadExecutionPath, loadSystemPrompt, loadPreset, getPresetsDir } from '
  * 3. Environment variables
  * 4. Default values
  *
- * @param cliInput - Configuration from runAgent() call
- * @returns Fully resolved configuration with all values defined
+ * @param userInput - User's configuration input
+ * @returns Fully resolved configuration with all values defined, plus preset metadata
  */
 export async function resolveConfig(
-  cliInput: ConfigInput = {}
-): Promise<ResolvedConfig> {
+  userInput: UserInput = {}
+): Promise<{ config: ResolvedConfig; presetMetadata?: { name: string; dir: string } }> {
   // 1. Load from environment
   const envConfig = loadEnvConfig();
 
-  // 2. Handle preset selection
-  let presetConfig: ConfigInput = {};
-  let presetDir: string | undefined;
+  // 2. Load from preset if provided
+  let presetConfig: Partial<ConfigurableSettings> = {};
+  let loadedSessionPlan: SessionPlan | undefined;
+  let loadedSystemPrompt: string | undefined;
+  let presetMetadata: { name: string; dir: string } | undefined;
 
-  if (cliInput.preset) {
+  if (userInput.fromPreset) {
     // Preset provided programmatically
-    // Resolve preset object (either passed directly or loaded by name)
-    let loadedPreset: Preset;
-    if (typeof cliInput.preset === 'string') {
-      const name = cliInput.preset;
-      const p = loadPreset(name);
-      if (!p) throw new Error(`Preset not found: ${name}`);
-      loadedPreset = p;
-      presetDir = path.join(getPresetsDir(), name);
-    } else {
-      loadedPreset = cliInput.preset;
-      // Note: If passed as object, presetDir might be unknown unless provided in cliInput
-    }
-    presetConfig = loadPresetConfig(loadedPreset);
-
-    // Load referenced files for programmatic presets
-    if (presetDir) {
-      if (!cliInput.executionPath && loadedPreset.executionPathRef) {
-        cliInput.executionPath = loadExecutionPath(presetDir, loadedPreset.executionPathRef) ?? undefined;
-      }
-      if (!cliInput.systemPrompt && loadedPreset.systemPromptRef) {
-        cliInput.systemPrompt = loadSystemPrompt(presetDir, loadedPreset.systemPromptRef) ?? undefined;
-        cliInput.presetDir = presetDir;
-      }
-    }
-  } else if (!cliInput.goal) {
-    // No goal or preset - prompt user to select preset or enter new goal
+    const loaded = await loadPresetWithFiles(userInput.fromPreset);
+    presetConfig = loaded.config;
+    loadedSessionPlan = loaded.sessionPlan;
+    loadedSystemPrompt = loaded.systemPrompt;
+    presetMetadata = loaded.metadata;
+  } else if (!userInput.overrides?.goal) {
+    // No preset or goal - prompt user to select preset or enter new goal
     const selected = await promptForPresetSelection();
     if (selected) {
-      presetConfig = loadPresetConfig(selected.preset);
-      presetDir = selected.presetDir;
-
-      // Load referenced files from preset directory
-      if (!cliInput.executionPath && selected.preset.executionPathRef) {
-        cliInput.executionPath = loadExecutionPath(
-          presetDir,
-          selected.preset.executionPathRef
-        ) ?? undefined;
-      }
-      if (selected.preset.systemPromptRef) {
-        cliInput.systemPrompt = loadSystemPrompt(
-          presetDir,
-          selected.preset.systemPromptRef
-        ) ?? undefined;
-        cliInput.presetDir = presetDir;
-      }
+      const loaded = await loadPresetWithFiles(selected.preset);
+      presetConfig = loaded.config;
+      loadedSessionPlan = loaded.sessionPlan;
+      loadedSystemPrompt = loaded.systemPrompt;
+      presetMetadata = { name: selected.preset.name, dir: selected.presetDir };
     } else {
       // User chose to enter a new goal
-      cliInput.goal = await promptForGoal();
+      if (!userInput.overrides) userInput.overrides = {};
+      userInput.overrides.goal = await promptForGoal();
     }
   }
 
@@ -98,7 +117,10 @@ export async function resolveConfig(
     ...DEFAULT_CONFIG,
     ...envConfig,
     ...presetConfig,
-    ...cliInput,
+    ...userInput.overrides,
+    // Content priority: direct > loaded > undefined
+    sessionPlan: userInput.sessionPlan ?? loadedSessionPlan,
+    systemPrompt: userInput.systemPrompt ?? loadedSystemPrompt,
   } as ResolvedConfig;
 
   // 4. Handle special cases
@@ -113,7 +135,7 @@ export async function resolveConfig(
     merged.startUrl = await promptForUrl();
   }
 
-  return merged;
+  return { config: merged, presetMetadata };
 }
 
 /**
@@ -222,12 +244,12 @@ function loadPresetConfig(preset: Preset): ConfigInput {
   const config: ConfigInput = {
     goal: preset.goal,
     startUrl: preset.startUrl,
-    sessionPlan: preset.sessionPlan,
+    // sessionPlan is loaded via sessionPlanRef elsewhere, not directly on preset
     systemPrompt: (preset as any).systemPrompt, // If already resolved
   };
 
   // If we have a ref but not the resolved text, we'll mark it for resolution
-  // and carry it over if the resolver knows how to handle it, 
+  // and carry it over if the resolver knows how to handle it,
   // but for now we'll just handle it in the main loop or here if we have dir context.
   (config as any).systemPromptRef = preset.systemPromptRef;
 

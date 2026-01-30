@@ -13,6 +13,7 @@ import { createTimestamp, getCurrentCycleIndex, getProgress } from '../types/ses
 import { shouldIntervene, requestIntervention, processInterventionControl, checkInterrupt } from '../interaction.js';
 import { logVariable } from '../utils/debug.js';
 import { think } from '../reason.js';
+import { executeVerification } from '../utils/verification.js';
 
 // -----------------------------------------------------------------------------
 // CYCLE START
@@ -247,7 +248,68 @@ export async function handleCycleEnd(
   }
 
   if (nextCycleIndex === -1) {
-    // All cycles complete
+    // All cycles complete - check session verification if configured
+    if (ctx.sessionPlan?.verification) {
+      console.log(`🔍 Verifying session completion...`);
+
+      const pageState = ctx.runtime.lastPageState;
+
+      if (pageState) {
+        const verifyResult = await executeVerification(
+          ctx.runtime.activePage,
+          ctx.sessionPlan.verification,
+          {
+            pageState,
+            goal: ctx.goal,
+            preset: ctx.preset,
+            tracker: ctx.tracker,
+            history: ctx.history,
+            llmClient: ctx.services.llmClient,
+            metrics: ctx.interventionMetrics,
+            limits: {
+              tokenMarkdown: ctx.tokenMarkdown,
+              tokenElements: ctx.tokenElements,
+              tokenMaxElements: ctx.tokenMaxElements,
+              tokenHistory: ctx.tokenHistory,
+            },
+            customSystemPrompt: ctx.customSystemPrompt,
+          }
+        );
+
+        if (!verifyResult.passed) {
+          console.log(`❌ Session verification failed: ${verifyResult.detail}`);
+
+          // Session verification failed - handle based on strategy
+          if (ctx.sessionPlan.verification.onFailure === 'fail') {
+            return {
+              phase: 'TERMINATED',
+              success: false,
+              message: `Session verification failed: ${verifyResult.detail}`,
+            };
+          }
+
+          // Otherwise continue - go back to last cycle
+          const lastCycleIndex = ctx.tracker.cycles.length - 1;
+          return {
+            phase: 'OBSERVE',
+            cycleIndex: lastCycleIndex >= 0 ? lastCycleIndex : 0,
+          };
+        }
+
+        console.log(`✅ Session verification passed [${verifyResult.method}]: ${verifyResult.detail}`);
+      }
+    }
+
+    // All cycles complete and verification passed
+    // Check if there are wrapup steps to execute
+    if (ctx.sessionPlan?.wrapupSteps && ctx.sessionPlan.wrapupSteps.length > 0) {
+      console.log('📋 All cycles complete, proceeding to wrapup phase...');
+      return {
+        phase: 'WRAPUP',
+      };
+    }
+
+    // No wrapup steps - proceed directly to termination
     return {
       phase: 'TERMINATED',
       success: true,

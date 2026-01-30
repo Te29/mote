@@ -4,7 +4,7 @@
 // Configuration for goals, presets, browser, LLM, and human-in-the-loop
 
 import type { SessionTracker } from './session.js';
-import type { ExecutionPath } from './actions.js';
+import type { SessionPlan } from './actions.js';
 
 // -----------------------------------------------------------------------------
 // GOAL
@@ -82,54 +82,47 @@ export type InterventionResponse =
   | { type: 'quit' };
 
 // -----------------------------------------------------------------------------
-// RESOLVED CONFIGURATION
+// CONFIGURABLE SETTINGS
 // -----------------------------------------------------------------------------
 
 /**
- * Complete resolved configuration - all options in one flat structure.
- * All fields have defined values after resolution from all sources:
- * CLI/Programmatic → Preset → Environment → Defaults
+ * Settings that can be configured via presets, CLI, or environment variables.
+ * All fields optional - they override defaults when provided.
  */
-export interface ResolvedConfig {
+export interface ConfigurableSettings {
   // ===== Task Definition =====
   goal?: Goal;
-  sessionPlan?: SessionTracker;
-  executionPath?: ExecutionPath;
   startUrl?: string;
 
   // ===== Browser Settings =====
-  headless: boolean;
-  slowMo: number;
+  headless?: boolean;
+  slowMo?: number;
   profilePath?: string; // undefined = ephemeral, string = persistent
-  stealth: boolean;
-
-  // ===== Context / Metadata =====
-  presetDir?: string;
-  systemPrompt?: string;
+  stealth?: boolean;
 
   // ===== Browser Timeouts (ms) =====
-  timeoutDefault: number;
-  timeoutNavigation: number;
-  timeoutElement: number;
-  postNavDelay: number;
+  timeoutDefault?: number;
+  timeoutNavigation?: number;
+  timeoutElement?: number;
+  postNavDelay?: number;
 
   // ===== Agent Control =====
-  maxSteps: number; // -1 = unlimited
-  engagementMode: EngagementMode;
-  stepPause: number;
-  verbose: boolean;
+  maxSteps?: number; // -1 = unlimited
+  engagementMode?: EngagementMode;
+  stepPause?: number;
+  verbose?: boolean;
 
   // ===== LLM Settings =====
-  llmBaseUrl: string;
-  llmApiKey: string;
-  llmModel: string;
-  llmTimeout: number; // ms, timeout for LLM API calls
+  llmBaseUrl?: string;
+  llmApiKey?: string;
+  llmModel?: string;
+  llmTimeout?: number; // ms, timeout for LLM API calls
 
   // ===== Prompt Token Limits =====
-  tokenMarkdown: number;
-  tokenElements: number;
-  tokenMaxElements: number;
-  tokenHistory: number;
+  tokenMarkdown?: number;
+  tokenElements?: number;
+  tokenMaxElements?: number;
+  tokenHistory?: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -137,31 +130,98 @@ export interface ResolvedConfig {
 // -----------------------------------------------------------------------------
 
 /**
- * Pre-configured task template (guidebook) with goal, settings, and file references.
- * Stored as preset.json in presets/{preset-name}/ directory.
- *
- * Presets can override ANY configuration setting for maximum flexibility.
+ * Pre-configured task template stored in presets/{name}/ directory.
+ * Provides goal, settings overrides, and references to external files.
  */
-export interface Preset extends Omit<Partial<ResolvedConfig>, 'goal' | 'executionPath'> {
+export interface Preset extends ConfigurableSettings {
+  // --- Preset Metadata (required) ---
   /** Unique identifier for this preset */
   name: string;
 
   /** Human-readable description */
   description: string;
 
-  /** Goal to accomplish (required override) */
+  // --- Task Definition (required in preset) ---
+  /** Goal to accomplish */
   goal: Goal;
 
-  /** Reference to execution path file (e.g., "./execution-path.json") */
-  executionPathRef?: string;
+  // --- File References (optional) ---
+  /** Reference to session plan file (e.g., "./session-plan.json") */
+  sessionPlanRef?: string;
 
   /** Reference to custom system prompt file (e.g., "./system-prompt.md") */
   systemPromptRef?: string;
 
+  // Note: All ConfigurableSettings fields are inherited and optional
+}
+
+// -----------------------------------------------------------------------------
+// RESOLVED CONFIGURATION
+// -----------------------------------------------------------------------------
+
+/**
+ * Fully resolved configuration with all values defined.
+ * Result of merging: Defaults → Environment → Preset → CLI/Programmatic
+ *
+ * All preset references (sessionPlanRef, systemPromptRef) are resolved
+ * to actual content (sessionPlan, systemPrompt) by this point.
+ */
+export interface ResolvedConfig extends Required<Omit<ConfigurableSettings, 'goal' | 'startUrl' | 'profilePath'>> {
+  // --- Task Definition (optional - can be provided later) ---
+  goal?: Goal;
+
+  // --- Start URL (optional - can be prompted for) ---
+  startUrl?: string;
+
+  // --- Profile Path (optional - undefined for ephemeral mode) ---
+  profilePath?: string;
+
+  // --- Loaded/Resolved Content ---
+  /** Session plan - loaded from preset ref (human-authored blueprint) */
+  sessionPlan?: SessionPlan;
+
+  /** System prompt - loaded from preset ref OR provided directly */
+  systemPrompt?: string;
+
+  // Note: All other ConfigurableSettings fields are REQUIRED
+  // (populated with defaults during resolution)
+}
+
+// -----------------------------------------------------------------------------
+// USER INPUT
+// -----------------------------------------------------------------------------
+
+/**
+ * User input to resolveConfig().
+ * Represents what the user can provide via CLI or programmatic API.
+ *
+ * The user can provide:
+ * 1. A preset (by name or object) to load defaults from
+ * 2. Direct config overrides
+ * 3. Both (overrides take precedence over preset)
+ */
+export interface UserInput {
+  /**
+   * Preset to load (by name or object).
+   * If provided, preset values are loaded first, then overridden by other fields.
+   */
+  fromPreset?: Preset | string;
+
+  /**
+   * Direct configuration overrides.
+   * These take precedence over preset values.
+   */
+  overrides?: Partial<ConfigurableSettings>;
+
+  /**
+   * Direct content (not from preset files).
+   * Takes precedence over content loaded from preset references.
+   */
+  sessionPlan?: SessionPlan;
+  systemPrompt?: string;
 }
 
 /**
- * Partial config for user input (all optional).
- * Used for CLI arguments, programmatic calls, presets, and env vars.
+ * @deprecated Use UserInput instead. Will be removed in next major version.
  */
 export type ConfigInput = Partial<ResolvedConfig> & { preset?: Preset | string };

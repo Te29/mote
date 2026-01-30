@@ -14,7 +14,6 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   // ===== Task Definition =====
   goal: undefined,
   sessionPlan: undefined,
-  executionPath: undefined,
   startUrl: undefined,
 
   // ===== Browser Settings =====
@@ -23,8 +22,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   profilePath: './mote-profile',
   stealth: true,
 
-  // ===== Context / Metadata =====
-  presetDir: undefined,
+  // ===== Loaded Content =====
   systemPrompt: undefined,
 
   // ===== Browser Timeouts (ms) =====

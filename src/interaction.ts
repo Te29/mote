@@ -538,7 +538,7 @@ export async function promptForPresetSelection(): Promise<{ preset: Preset; pres
   console.log('─'.repeat(40));
 
   presets.forEach((preset, index) => {
-    const execMode = preset.hasExecutionPath ? '⚡ Execute' : '🔍 Explore';
+    const execMode = preset.hasSessionPlan ? '⚡ Execute' : '🔍 Explore';
     console.log(`  ${index + 1}. ${preset.name}`);
     console.log(`     ${preset.description}`);
     console.log(`     Mode: ${execMode}`);
