@@ -303,6 +303,53 @@ export async function handleCycleEnd(
   }
 
   if (nextCycleIndex === -1) {
+    // Check if unlimited cycles mode
+    const numberOfCycles = ctx.sessionPlan?.numberOfCycles ?? 1;
+    const isUnlimitedCycles = numberOfCycles === -1;
+
+    // If unlimited cycles, create a new cycle instead of terminating
+    if (isUnlimitedCycles) {
+      const newCycleIndex = ctx.tracker.cycles.length;
+      ctx.tracker.cycles.push({
+        isCompleted: false,
+        cycleSteps: [],
+      });
+      console.log(`♾️  Unlimited cycles mode: Starting cycle ${newCycleIndex + 1}...`);
+
+      return {
+        phase: 'CYCLE_START',
+        cycleIndex: newCycleIndex,
+      };
+    }
+
+    // All cycles complete - save final checkpoint if enabled
+    if (ctx.enableCheckpointing) {
+      const sessionId =
+        ctx.goal?.name.toLowerCase().replace(/\s+/g, '-') ||
+        ctx.preset?.name.toLowerCase().replace(/\s+/g, '-') ||
+        'session';
+
+      const checkpoint: SessionCheckpoint = {
+        version: '1.0.0',
+        timestamp: createTimestamp(),
+        sessionId,
+        tracker: ctx.tracker,
+        history: ctx.history,
+        startUrl: ctx.tracker.cycleStartUrl || ctx.startUrl || '',
+        lastUrl: ctx.runtime.activePage.url(),
+        goalDescription: ctx.goal?.description,
+        presetName: ctx.preset?.name,
+      };
+
+      try {
+        const filepath = saveCheckpoint(checkpoint);
+        console.log(`💾 Final checkpoint saved: ${path.basename(filepath)}`);
+      } catch (error) {
+        console.warn('⚠️ Failed to save final checkpoint:', error);
+        // Non-fatal - continue execution
+      }
+    }
+
     // All cycles complete - check session verification if configured
     if (ctx.sessionPlan?.verification) {
       console.log(`🔍 Verifying session completion...`);
@@ -344,7 +391,11 @@ export async function handleCycleEnd(
           }
 
           // Otherwise continue - go back to last cycle
+          // IMPORTANT: Unmark last cycle as incomplete so it can be retried
           const lastCycleIndex = ctx.tracker.cycles.length - 1;
+          if (lastCycleIndex >= 0) {
+            ctx.tracker.cycles[lastCycleIndex].isCompleted = false;
+          }
           return {
             phase: 'OBSERVE',
             cycleIndex: lastCycleIndex >= 0 ? lastCycleIndex : 0,

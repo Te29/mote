@@ -46,8 +46,60 @@ export async function handleReason(
       // Safety check
       if (unitIndex >= ctx.cyclePlan.units.length) {
         // Unit index out of bounds - Path Complete
-        console.log(`✅ Execution path completed. Switching to LLM reasoning.`);
-        break;
+        console.log(`✅ Blueprint execution path completed.`);
+
+        // Auto-verify instead of falling back to LLM
+        if (ctx.cyclePlan.verification) {
+          console.log(`🔍 Auto-verifying cycle completion...`);
+
+          const verifyResult = await executeVerification(
+            ctx.runtime.activePage,
+            ctx.cyclePlan.verification,
+            {
+              pageState: state.pageState,
+              goal: ctx.goal,
+              preset: ctx.preset,
+              tracker: ctx.tracker,
+              history: ctx.history,
+              llmClient: ctx.services.llmClient,
+              metrics: ctx.interventionMetrics,
+              limits: {
+                tokenMarkdown: ctx.tokenMarkdown,
+                tokenElements: ctx.tokenElements,
+                tokenMaxElements: ctx.tokenMaxElements,
+                tokenHistory: ctx.tokenHistory,
+              },
+              customSystemPrompt: ctx.customSystemPrompt,
+            }
+          );
+
+          if (verifyResult.passed) {
+            console.log(`✅ Cycle verification passed [${verifyResult.method}]: ${verifyResult.detail}`);
+            return {
+              phase: 'CYCLE_END',
+              cycleIndex: state.cycleIndex,
+              result: 'SUCCESS',
+              detail: verifyResult.detail,
+            };
+          } else {
+            console.log(`❌ Cycle verification failed: ${verifyResult.detail}`);
+            return {
+              phase: 'CYCLE_END',
+              cycleIndex: state.cycleIndex,
+              result: 'FAILURE',
+              detail: `Verification failed: ${verifyResult.detail}`,
+            };
+          }
+        }
+
+        // No verification configured - blueprint completion = success
+        console.log(`✅ Blueprint complete, no verification configured. Marking cycle as success.`);
+        return {
+          phase: 'CYCLE_END',
+          cycleIndex: state.cycleIndex,
+          result: 'SUCCESS',
+          detail: 'Blueprint execution completed successfully',
+        };
       }
       const unit: PlanUnit = ctx.cyclePlan.units[unitIndex];
       let currentStep: StepPlan | null = null;
