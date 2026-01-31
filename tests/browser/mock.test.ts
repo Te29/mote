@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { launchBrowser, closeBrowser, navigateTo, getPageContent } from '../../src/browser.js';
 import { chromium } from 'playwright';
 

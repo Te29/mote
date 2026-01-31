@@ -161,7 +161,7 @@ export async function runAgent(
   } catch (error) {
     return createBootstrapErrorResult(error, startTime, config);
   }
-
+  
   // Print startup banner
   printBanner(config, bootstrapResult.tracker);
 
@@ -246,7 +246,6 @@ export { extractPathFromHistory } from './runtime/result.js';
  * Check if the current file is the main entry point.
  * Equivalent to `if (require.main === module)` in CommonJS.
  */
-import { fileURLToPath } from 'url';
 import { pathToFileURL } from 'url';
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

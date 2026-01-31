@@ -3,8 +3,8 @@
 // =============================================================================
 // Tests for SessionPlan execution with setup/cycles/wrapup phases
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import type { SessionPlan, CyclePlan, StepPlan, SessionTracker } from '../../src/types/index.js';
+import { describe, it, expect } from 'vitest';
+import type { SessionPlan, SessionTracker } from '../../src/types/index.js';
 import {
   getCurrentSection,
   getProgress,

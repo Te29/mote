@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Page, Locator, BrowserContext, ElementHandle, Download } from 'playwright';
+import type { Page, Locator, BrowserContext } from 'playwright';
 import type { ElementInfo, Action } from '../../src/types/index.js';
 
 // Mock the act module functions
@@ -75,24 +75,6 @@ describe('Act Module - Unit Tests', () => {
   });
 
   describe('executeAction dispatcher', () => {
-    const mockElements: ElementInfo[] = [
-      {
-        index: 1,
-        tag: 'button',
-        text: 'Submit',
-        selector: 'button.submit',
-        attributes: {},
-      },
-      {
-        index: 2,
-        tag: 'input',
-        text: 'Email',
-        selector: 'input[name="email"]',
-        inputType: 'text',
-        attributes: { name: 'email' },
-      },
-    ];
-
     it('should route click action correctly', async () => {
       const action: Action = {
         type: 'click',

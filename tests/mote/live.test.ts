@@ -7,7 +7,6 @@ import * as reason from '../../src/reason.js';
 import * as interaction from '../../src/interaction.js';
 import {
   type SessionTracker,
-  type PageState,
   createTimestamp,
 } from '../../src/types/index.js';
 

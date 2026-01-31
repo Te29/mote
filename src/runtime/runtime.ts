@@ -13,7 +13,6 @@ import type { Page } from 'playwright';
 import type {
   Goal,
   Preset,
-  StepPlan,
   CyclePlan,
   SessionPlan,
   SessionTracker,
@@ -21,7 +20,6 @@ import type {
   AgentState,
   AgentContext,
   EngagementMode,
-  PageState,
 } from '../types/index.js';
 import { validateTransition, getCurrentCycleIndex, getCurrentSection } from '../types/index.js';
 import type { InterventionMetrics } from '../prompt.js';
@@ -40,7 +38,6 @@ import {
   handleReason,
   handleAct,
 } from '../handlers/index.js';
-import { logVariable } from '../utils/debug.js';
 
 // -----------------------------------------------------------------------------
 // TYPES

@@ -59,7 +59,7 @@ export async function executeVerification(
   config: VerificationConfig,
   context?: VerificationContext,
 ): Promise<VerificationResult> {
-  const { script, description, onFailure = 'llm' } = config;
+  const { script, description } = config;
 
   try {
     // Execute script in browser context

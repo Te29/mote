@@ -244,7 +244,7 @@ describe('Loop Logic in handleReason', () => {
     // Simulate End of Iteration 1
     ctx.runtime.executionPointer = [0, 1];
 
-    const result = await handleReason(stateWithoutMarker, ctx);
+    await handleReason(stateWithoutMarker, ctx);
 
     // Should exit loop and move to next unit
     expect(ctx.runtime.executionPointer).toEqual([1]);

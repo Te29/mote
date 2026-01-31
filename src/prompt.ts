@@ -536,7 +536,7 @@ For multi_click (checkboxes/toggles only):
 // -----------------------------------------------------------------------------
 
 export function buildDriftAnalysisPrompt(
-    expectedState: PageState,
+    _expectedState: PageState,
     currentState: PageState,
     plannedAction: Action,
     elementContext: string

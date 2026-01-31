@@ -7,11 +7,7 @@ import * as reason from '../../src/reason.js';
 import * as handlers from '../../src/handlers/index.js';
 import {
   type SessionTracker,
-  type CycleTracker,
   type PageState,
-  type ThinkResult,
-  type AgentResult,
-  type AgentState,
   type AgentStateCycleStart,
   type AgentStateObserve,
   type AgentStateReason,

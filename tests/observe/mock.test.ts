@@ -189,9 +189,9 @@ describe('Observe Module', () => {
                 root.appendChild(btn);
             </script>
         `);
-        
-        const state = await observe(browserSession.page);
-        
+
+        await observe(browserSession.page);
+
         // Check data-testid priority
         // Note: ID usually beats data-testid in my logic, let me double check the impl...
         // Ah, in buildSelector, I put ID first (P1), then data-testid (P1b).

@@ -151,9 +151,6 @@ describe('Live Website Functional Tests', () => {
 
     // 3. Questions List
     // We expect many links to questions
-    const questionLinks = state.elements.filter(el => el.tag === 'a' && el.attributes.class?.includes('question-hyperlink'));
-    // Note: observe.ts might not capture classes in attributes unless generic logic fallback uses it, 
-    // but the text/href serves as proxy.
     const links = state.elements.filter(el => el.tag === 'a');
     expect(links.length).toBeGreaterThan(20);
   });

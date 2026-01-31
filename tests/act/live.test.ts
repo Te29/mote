@@ -3,7 +3,6 @@ import { launchBrowser, navigateTo, closeBrowser } from '../../src/browser.js';
 import { observe } from '../../src/observe.js';
 import { executeAction, pressKey } from '../../src/act/index.js';
 import type { Action } from '../../src/types/index.js';
-import type { Page } from 'playwright';
 
 // These tests require a browser and internet access.
 // Run with: npm run test:act:live

@@ -236,57 +236,6 @@ function loadEnvConfig(): Partial<ConfigurableSettings> {
   return config;
 }
 
-/**
- * Load configuration from preset.
- * Presets can override any setting.
- */
-function loadPresetConfig(preset: Preset): Partial<ResolvedConfig> {
-  const config: Partial<ResolvedConfig> = {
-    goal: preset.goal,
-    startUrl: preset.startUrl,
-    // sessionPlan is loaded via sessionPlanRef elsewhere, not directly on preset
-    systemPrompt: (preset as any).systemPrompt, // If already resolved
-    // We can also store the ref temporarily if needed, but ResolvedConfig doesn't have ref fields
-  };
-
-  // If we have a ref but not the resolved text, we'll mark it for resolution
-  // and carry it over if the resolver knows how to handle it,
-  // but for now we'll just handle it in the main loop or here if we have dir context.
-  // (config as any).systemPromptRef = preset.systemPromptRef; // Clean up - don't carry ref in config object
-
-
-
-  // Map flat preset properties to internal config structure
-  if (preset.maxSteps !== undefined) config.maxSteps = preset.maxSteps;
-  if (preset.engagementMode !== undefined) config.engagementMode = preset.engagementMode;
-  if (preset.stepPause !== undefined) config.stepPause = preset.stepPause;
-  if (preset.verbose !== undefined) config.verbose = preset.verbose;
-
-  // Browser settings
-  if (preset.headless !== undefined) config.headless = preset.headless;
-  if (preset.slowMo !== undefined) config.slowMo = preset.slowMo;
-  if (preset.profilePath !== undefined) config.profilePath = preset.profilePath;
-  if (preset.stealth !== undefined) config.stealth = preset.stealth;
-
-  // Timeouts
-  if (preset.timeoutDefault !== undefined) config.timeoutDefault = preset.timeoutDefault;
-  if (preset.timeoutNavigation !== undefined) config.timeoutNavigation = preset.timeoutNavigation;
-  if (preset.timeoutElement !== undefined) config.timeoutElement = preset.timeoutElement;
-  if (preset.postNavDelay !== undefined) config.postNavDelay = preset.postNavDelay;
-
-  // LLM settings
-  if (preset.llmBaseUrl !== undefined) config.llmBaseUrl = preset.llmBaseUrl;
-  if (preset.llmApiKey !== undefined) config.llmApiKey = preset.llmApiKey;
-  if (preset.llmModel !== undefined) config.llmModel = preset.llmModel;
-
-  // Token limits
-  if (preset.tokenMarkdown !== undefined) config.tokenMarkdown = preset.tokenMarkdown;
-  if (preset.tokenElements !== undefined) config.tokenElements = preset.tokenElements;
-  if (preset.tokenMaxElements !== undefined) config.tokenMaxElements = preset.tokenMaxElements;
-  if (preset.tokenHistory !== undefined) config.tokenHistory = preset.tokenHistory;
-
-  return config;
-}
 
 /**
  * Parse engagement mode from string with validation.

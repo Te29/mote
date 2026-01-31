@@ -11,7 +11,6 @@ import type {
   StepResult,
   PageState,
   EngagementMode,
-  StepPlan,
   CyclePlan,
   SessionPlan,
   DriftRecord,

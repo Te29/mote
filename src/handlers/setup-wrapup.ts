@@ -28,7 +28,7 @@ import * as path from 'path';
  * Executes session-level setup steps from SessionPlan before any cycles begin.
  */
 export async function handleSetup(
-  state: AgentStateSetup,
+  _state: AgentStateSetup,
   ctx: AgentContext,
 ): Promise<AgentState> {
   console.log('🔧 === SETUP PHASE ===');
@@ -145,7 +145,7 @@ export async function handleSetup(
  * Executes session-level wrapup steps from SessionPlan after all cycles complete.
  */
 export async function handleWrapup(
-  state: AgentStateWrapup,
+  _state: AgentStateWrapup,
   ctx: AgentContext,
 ): Promise<AgentState> {
   console.log('🎬 === WRAPUP PHASE ===');

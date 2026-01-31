@@ -16,7 +16,6 @@ import type {
   Goal,
   SessionTracker,
   ResolvedConfig,
-  EngagementMode,
   StepResult,
 } from '../types/index.js';
 import { createTimestamp, getProgress } from '../types/index.js';

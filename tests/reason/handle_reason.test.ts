@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleReason } from '../../src/handlers/reason.js';
 import type { AgentStateReason } from '../../src/types/state-machine.js';
 import type { AgentContext } from '../../src/types/context.js';
-import type { StepPlan, Action, PageState, CyclePlan } from '../../src/types/index.js';
+import type { StepPlan, Action, PageState } from '../../src/types/index.js';
 
 describe('handleReason State Handler', () => {
     const mockPageState: PageState = {

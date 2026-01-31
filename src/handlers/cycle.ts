@@ -230,7 +230,6 @@ export async function handleCycleEnd(
 
     // Use centralized control logic
     const control = processInterventionControl(response);
-    const result = state.result;
     const pageState = ctx.runtime.lastPageState;
 
     // 1. Handle Force Fail (Override Success)

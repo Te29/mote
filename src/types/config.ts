@@ -3,7 +3,6 @@
 // =============================================================================
 // Configuration for goals, presets, browser, LLM, and human-in-the-loop
 
-import type { SessionTracker } from './session.js';
 import type { SessionPlan } from './actions.js';
 
 // -----------------------------------------------------------------------------

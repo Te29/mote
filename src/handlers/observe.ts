@@ -6,8 +6,6 @@
 import type {
   AgentState,
   AgentStateObserve,
-  AgentStateReason,
-  AgentStateTerminated,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
 
@@ -16,9 +14,6 @@ import {
 } from '../types/index.js';
 import { logVariable } from '../utils/debug.js';
 import { checkInterrupt, requestIntervention, processInterventionControl } from '../interaction.js';
-
-/** Valid return states for handleObserve */
-type ObserveNextState = AgentStateReason | AgentStateTerminated;
 
 // -----------------------------------------------------------------------------
 // OBSERVE

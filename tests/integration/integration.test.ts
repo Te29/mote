@@ -5,7 +5,7 @@ import * as browser from '../../src/browser.js';
 import * as observeModule from '../../src/observe.js';
 import * as checkModule from '../../src/reason.js';
 import type { Page, Browser, BrowserContext } from 'playwright';
-import type { Preset, Goal, PageState } from '../../src/types/index.js';
+import type { Preset } from '../../src/types/index.js';
 
 // Mock Modules
 vi.mock('../../src/observe.js');
@@ -21,8 +21,7 @@ vi.mock('../../src/utils/debug.js', () => ({
 
 describe('Explore vs Execute Mode', () => {
   let mockPage: any;
-  let mockBrowser: any;
-  
+
   beforeEach(async () => {
     vi.clearAllMocks();
     
@@ -119,19 +118,6 @@ describe('Explore vs Execute Mode', () => {
       description: 'Test with cache',
       goal: { name: 'Test', description: 'Test Goal' },
     };
-    const executionPath = {
-      units: [{
-        type: 'step' as const,
-        step: {
-          stepId: '1',
-          description: 'Cached Step 1',
-          url: 'https://example.com/test',
-          targetElementSelector: '#exact-btn',
-          action: { type: 'click' as const, elementId: '#exact-btn', reason: 'Cached Click' },
-          expectedPageState: {} as any
-        }
-      }]
-    };
 
     vi.spyOn(observeModule, 'observe').mockResolvedValue({
       url: 'https://example.com/test', title: 'Test', markdown: '',
@@ -213,17 +199,6 @@ describe('Explore vs Execute Mode', () => {
       name: 'Self-Healing Test',
       description: 'Test with execution path',
       goal: { name: 'Test', description: 'Test Goal' },
-    };
-    const executionPath = {
-      units: [{
-        type: 'step' as const,
-        step: {
-          stepId: '1', description: 'Step needing adaptation', url: 'https://example.com',
-          targetElementSelector: '#old-btn',
-          action: { type: 'click' as const, elementId: '1', reason: 'Click button' },
-          expectedPageState: { url: 'https://example.com', title: 'Expected', markdown: '', elements: [] } as PageState
-        }
-      }]
     };
 
     vi.spyOn(observeModule, 'observe').mockResolvedValue({

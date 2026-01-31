@@ -10,7 +10,7 @@ import type {
 import type { AgentContext } from '../types/context.js';
 import type { StepResult } from '../types/results.js';
 import { createTimestamp } from '../types/session.js';
-import { executeAction, pressKey } from '../act/index.js';
+import { executeAction } from '../act/index.js';
 import { think } from '../reason.js';
 import { shouldIntervene, requestIntervention, processInterventionControl } from '../interaction.js';
 import { logVariable } from '../utils/debug.js';

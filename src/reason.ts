@@ -24,10 +24,7 @@ import type {
   ThinkResult,
   SessionTracker,
   SessionPlan,
-  StepPlan,
-  StepTracker,
   Action,
-  ElementInfo,
   CycleStrategy
 } from './types/index.js';
 import { getCurrentCycleIndex, createTimestamp } from './types/index.js';
