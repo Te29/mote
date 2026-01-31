@@ -58,21 +58,24 @@ export async function handleSetup(
 
   console.log(`📋 Executing setup step ${executedSetupSteps + 1}/${totalSetupSteps}: ${stepPlan.description}`);
 
+  // Track step result
+  let success = true;
+  let error: string | undefined;
+
   // Navigate to step URL if specified
   if (stepPlan.url) {
     console.log(`  🌐 Navigating to: ${stepPlan.url}`);
     try {
       await ctx.services.browser.navigateTo(ctx.runtime.activePage, stepPlan.url);
-    } catch (error) {
-      console.error('  ⚠️ Navigation failed:', error);
+    } catch (navError) {
+      console.error('  ⚠️ Navigation failed:', navError);
+      success = false;
+      error = navError instanceof Error ? navError.message : String(navError);
     }
   }
 
-  // Execute the step action if defined
-  let success = true;
-  let error: string | undefined;
-
-  if (stepPlan.action) {
+  // Execute the step action if defined (skip if navigation already failed)
+  if (success && stepPlan.action) {
     console.log(`  ⚡ Executing action: ${stepPlan.action.type}`);
     const result = await executeAction(
       ctx.runtime.activePage,

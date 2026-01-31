@@ -34,12 +34,16 @@ config();
 /**
  * Extract RuntimeSettings from ResolvedConfig.
  */
-function extractSettings(config: ResolvedConfig): RuntimeSettings {
+function extractSettings(
+  config: ResolvedConfig,
+  presetMetadata?: { name: string; dir: string }
+): RuntimeSettings {
   return {
     goal: config.goal,
     cyclePlan: config.sessionPlan?.cyclePlan,
     sessionPlan: config.sessionPlan,
     customSystemPrompt: config.systemPrompt,
+    presetDir: presetMetadata?.dir,
     engagementMode: config.engagementMode,
     verbose: config.verbose,
     maxSteps: config.maxSteps,
@@ -191,7 +195,7 @@ export async function runAgent(
   // ---------------------------------------------------------------------------
   let runtimeResult: RuntimeResult;
   try {
-    const runtimeSettings = extractSettings(config);
+    const runtimeSettings = extractSettings(config, presetMetadata);
 
     runtimeResult = await executeRuntime({
       settings: runtimeSettings,

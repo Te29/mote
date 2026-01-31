@@ -62,6 +62,13 @@ export interface AgentSettings {
   customSystemPrompt?: string;
 
   /**
+   * Directory path of the loaded preset.
+   * Used for loading step-specific prompts.
+   * IMMUTABLE - set once at startup.
+   */
+  presetDir?: string;
+
+  /**
    * Engagement mode controlling intervention frequency.
    * IMMUTABLE - set once, never modified.
    */

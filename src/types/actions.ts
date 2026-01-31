@@ -158,61 +158,82 @@ export interface VerificationConfig {
   onFailure?: 'llm' | 'continue' | 'fail';
 }
 
-export interface PromptRef {
-  /** Which preset's prompt file */
-  presetId: string;
+/**
+ * Reference to a prompt file for step-level customization.
+ * Simple relative path from the preset directory.
+ *
+ * @example
+ * "./prompts/fill-form.md"
+ * "./prompts/select-product.md"
+ */
+export type StepPromptRef = string;
 
-  /** Which prompt file inside the preset (usually one) */
-  file: 'main' | 'recovery' | 'analysis';
-
-  /** JSON path / key path inside the prompt file */
-  key: string;
-
-  /** Optional progressive layer (e.g. base + step override) */
-  variant?: string;
-}
-
-/** 
+/**
  * Blueprint for a single step, independent of execution results.
  * Defines WHAT to do, not what happened.
+ *
+ * Execution modes:
+ * - llmRequired: false + complete action → Fast path (execute directly)
+ * - llmRequired: true (default) → LLM path (reasoning module determines action)
  */
 export interface StepPlan {
   /** Global unique ID */
   stepId: string;
-  
-  /** Human-readable description */
+
+  /** Human-readable description (for logging/display) */
   description: string;
-  
+
+  /**
+   * Detailed instruction for LLM reasoning.
+   * Describes WHAT to accomplish, not HOW.
+   * Used when llmRequired is true.
+   *
+   * @example
+   * "Find the username or email input field and enter the login credentials.
+   *  Look for fields labeled 'Username', 'Email', or 'Login ID'."
+   */
+  instruction?: string;
+
   /** Optional URL constraint (wait for this URL before acting) */
   url?: string;
-  
+
   /** If true, URL match must be exact; otherwise partial/pattern */
   isUrlFixed?: boolean;
-  
-  /** 
-   * CSS selector for the target element. 
-   * Optional because some steps might be purely reasoning/navigation without specific element interaction.
-   * or for dynamic element selection without fixed element info indicated. 
+
+  /**
+   * CSS selector hint for the target element.
+   * For llmRequired:false → Used directly for element selection.
+   * For llmRequired:true → Optional hint to guide LLM's element search.
    */
   targetElementSelector?: string;
-  
-  /** 
+
+  /**
    * Action to execute.
-   * Optional because the step might be "Wait" or "Verify" without a browser action.
+   * For llmRequired:false → Complete action executed directly.
+   * For llmRequired:true → Optional partial hints (LLM fills in elementId, etc.)
    */
   action?: Action;
-  
+
   /**
    * Page state expected before execution.
    * Used for verification and self-healing.
    */
   expectedPageState?: PageState;
-  
-  /** Whether LLM reasoning is required for this step (vs fast-path deterministic) */
+
+  /**
+   * Whether LLM reasoning is required for this step.
+   * - true (default): Call reasoning module with instruction + custom prompt
+   * - false: Fast path, execute action directly without LLM
+   */
   llmRequired?: boolean;
-  
-  /** Reference to a specific prompt template for this step */
-  customPromptRef?: PromptRef;
+
+  /**
+   * Relative path to step-specific prompt file.
+   * Path is relative to the preset directory.
+   *
+   * @example "./prompts/fill-form.md"
+   */
+  promptRef?: StepPromptRef;
 }
 
 /** 

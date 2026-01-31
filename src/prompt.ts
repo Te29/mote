@@ -159,7 +159,6 @@ REPLAN: When current approach isn't working:
 - Never repeat the same action on same elements - check [PREVIOUS ACTIONS]
 - Use scroll_to_element for [OFFSCREEN] elements
 - One action at a time - describe only THIS action in reason field
-- After filling forms, click submit/next to proceed
 
 [AVAILABLE ACTIONS]
 ${buildActionsPrompt()}`,

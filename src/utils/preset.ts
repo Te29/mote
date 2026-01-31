@@ -6,7 +6,11 @@
  *   └── {preset-name}/
  *       ├── preset.json         (required)
  *       ├── session-plan.json   (optional - session blueprint)
- *       └── system-prompt.md    (optional)
+ *       ├── system-prompt.md    (optional)
+ *       └── prompts/            (optional - step-specific prompts)
+ *           ├── fill-form.md
+ *           ├── select-product.md
+ *           └── ...
  */
 
 import * as fs from 'fs';
@@ -164,6 +168,65 @@ export function loadSystemPrompt(
     console.warn(`Warning: Could not load system prompt from: ${systemPromptFile}`);
     return null;
   }
+}
+
+/**
+ * Load a step-specific prompt from preset directory.
+ * @param presetDir - Path to preset directory
+ * @param promptRef - Relative path to prompt file (e.g., "./prompts/fill-form.md")
+ * @returns Prompt template text, or null if not found
+ */
+export function loadStepPrompt(
+  presetDir: string,
+  promptRef?: string,
+): string | null {
+  if (!promptRef) {
+    return null;
+  }
+
+  const promptFile = path.join(presetDir, promptRef);
+
+  try {
+    return fs.readFileSync(promptFile, 'utf-8');
+  } catch {
+    console.warn(`Warning: Could not load step prompt from: ${promptFile}`);
+    return null;
+  }
+}
+
+/**
+ * Render a prompt template by substituting {{variable}} placeholders.
+ * Supports nested paths like {{context.username}}.
+ *
+ * @param template - Prompt template with {{variable}} placeholders
+ * @param variables - Object containing variable values
+ * @returns Rendered prompt with placeholders replaced
+ *
+ * @example
+ * const template = "Hello {{name}}, your email is {{context.email}}";
+ * const vars = { name: "John", context: { email: "john@example.com" } };
+ * renderPromptTemplate(template, vars);
+ * // => "Hello John, your email is john@example.com"
+ */
+export function renderPromptTemplate(
+  template: string,
+  variables: Record<string, unknown>,
+): string {
+  return template.replace(/\{\{([^}]+)\}\}/g, (match, path: string) => {
+    const keys = path.trim().split('.');
+    let value: unknown = variables;
+
+    for (const key of keys) {
+      if (value && typeof value === 'object' && key in value) {
+        value = (value as Record<string, unknown>)[key];
+      } else {
+        // Return original placeholder if path not found
+        return match;
+      }
+    }
+
+    return String(value ?? match);
+  });
 }
 
 /**

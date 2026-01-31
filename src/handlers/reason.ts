@@ -13,6 +13,7 @@ import { createTimestamp } from '../types/session.js';
 import { logVariable } from '../utils/debug.js';
 import { shouldIntervene, requestIntervention, processInterventionControl } from '../interaction.js';
 import { executeVerification } from '../utils/verification.js';
+import { loadStepPrompt, renderPromptTemplate } from '../utils/preset.js';
 
 // -----------------------------------------------------------------------------
 // REASON
@@ -309,8 +310,116 @@ export async function handleReason(
         }
 
         // ----------------------
-        // 1. IF STEP HAS NO ACTION (Verify/Wait)
+        // 1. LLM-DRIVEN STEP (llmRequired: true or undefined)
         // ----------------------
+        // When llmRequired is true (default), use LLM to determine the action
+        // The step provides instruction/direction, LLM figures out the exact action
+        if (currentStep.llmRequired !== false) {
+          console.log(`🧠 LLM-driven step: ${currentStep.description}`);
+
+          // Load step-specific prompt if provided
+          let stepPrompt: string | undefined;
+          if (currentStep.promptRef && ctx.presetDir) {
+            const rawPrompt = loadStepPrompt(ctx.presetDir, currentStep.promptRef);
+            if (rawPrompt) {
+              // Render prompt template with step instruction and context
+              stepPrompt = renderPromptTemplate(rawPrompt, {
+                instruction: currentStep.instruction || currentStep.description,
+                step: currentStep,
+                context: ctx.goal?.context || {},
+                goal: ctx.goal,
+              });
+              console.log(`   📝 Loaded step prompt from: ${currentStep.promptRef}`);
+            }
+          }
+
+          // Build instruction for LLM
+          const stepInstruction = currentStep.instruction || currentStep.description;
+          const hints: string[] = [];
+          if (cssSelector) {
+            hints.push(`Target element hint: ${cssSelector}`);
+          }
+          if (cachedAction) {
+            hints.push(`Suggested action type: ${cachedAction.type}`);
+            if (cachedAction.text) {
+              hints.push(`Text/value: ${cachedAction.text}`);
+            }
+          }
+
+          // Combine instruction and hints into a single instruction string
+          const fullInstruction = hints.length > 0
+            ? `${stepInstruction}\n\nHints:\n${hints.join('\n')}`
+            : stepInstruction;
+
+          // Call reasoning module with step context
+          const llmResult = await ctx.services.reason.think(
+            state.pageState,
+            ctx.goal,
+            ctx.preset,
+            ctx.tracker,
+            ctx.history,
+            ctx.services.llmClient,
+            ctx.interventionMetrics,
+            {
+              tokenMarkdown: ctx.tokenMarkdown,
+              tokenElements: ctx.tokenElements,
+              tokenMaxElements: ctx.tokenMaxElements,
+              tokenHistory: ctx.tokenHistory,
+            },
+            {
+              point: 'ACTION',
+              instruction: fullInstruction,
+            },
+            stepPrompt || ctx.customSystemPrompt,
+          );
+
+          if (llmResult.type === 'ACTION') {
+            console.log(`   ✓ LLM determined action: ${llmResult.action.type} - ${llmResult.action.reason}`);
+            return {
+              phase: 'ACT',
+              cycleIndex: state.cycleIndex,
+              action: llmResult.action,
+              pageState: state.pageState,
+              stepId,
+              loopId: currentLoopId,
+              loopIteration: currentLoopIteration,
+              globalIndex: unitIndex,
+            };
+          }
+
+          if (llmResult.type === 'GOAL_SUCCESS') {
+            console.log(`   ✓ LLM reports goal success: ${llmResult.finalAnswer}`);
+            return {
+              phase: 'CYCLE_END',
+              cycleIndex: state.cycleIndex,
+              result: 'SUCCESS',
+              detail: llmResult.finalAnswer,
+            };
+          }
+
+          if (llmResult.type === 'FAIL') {
+            console.log(`   ✗ LLM failed: ${llmResult.error}`);
+            return {
+              phase: 'CYCLE_END',
+              cycleIndex: state.cycleIndex,
+              result: 'FAILURE',
+              detail: llmResult.error,
+            };
+          }
+
+          if (llmResult.type === 'REPLAN') {
+            console.log(`   ↻ LLM requests replan: ${llmResult.reason}`);
+            return { phase: 'OBSERVE', cycleIndex: state.cycleIndex };
+          }
+
+          // RETRY_PERCEPTION - re-observe
+          return { phase: 'OBSERVE', cycleIndex: state.cycleIndex };
+        }
+
+        // ----------------------
+        // 2. FAST PATH: IF STEP HAS NO ACTION (Verify/Wait)
+        // ----------------------
+        // Only reached when llmRequired: false
         if (!cachedAction) {
            console.log(`ℹ️ Step has no cached action. Performing verification/wait.`);
            // If verification passes (implied by reaching here in strict mode, or check expectedPageState)
@@ -328,8 +437,9 @@ export async function handleReason(
         }
 
         // ----------------------
-        // 2. TARGET RESOLUTION (If selector exists)
+        // 3. FAST PATH: TARGET RESOLUTION (If selector exists)
         // ----------------------
+        // Only reached when llmRequired: false
         if (cssSelector) {
            // A. EXACT MATCH
            const targetFound = state.pageState.elements.some((el) => el.selector === cssSelector);
