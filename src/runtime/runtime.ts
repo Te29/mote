@@ -20,6 +20,7 @@ import type {
   AgentState,
   AgentContext,
   EngagementMode,
+  DriftRecord,
 } from '../types/index.js';
 import { validateTransition, getCurrentCycleIndex, getCurrentSection } from '../types/index.js';
 import type { InterventionMetrics } from '../prompt.js';
@@ -79,6 +80,14 @@ export interface RestoredRuntimeState {
       startedAt: string;
     }
   >;
+  /** Drift records from the current cycle (for mid-cycle resumption) */
+  currentCycleDrifts?: DriftRecord[];
+  /**
+   * Whether to resume mid-cycle at OBSERVE instead of CYCLE_START.
+   * Only OBSERVE is supported for mid-cycle resumption since REASON/ACT
+   * require pageState/action that would be stale after checkpoint restore.
+   */
+  resumeAtObserve?: boolean;
 }
 
 /**
@@ -170,7 +179,7 @@ export async function executeRuntime(
       hadAdaptations: false,
       executionPointer: config.restoredRuntimeState?.executionPointer ?? [0],
       loopStates: config.restoredRuntimeState?.loopStates ?? {},
-      currentCycleDrifts: [], // Initialize empty drift array
+      currentCycleDrifts: config.restoredRuntimeState?.currentCycleDrifts ?? [],
     },
   };
 
@@ -223,7 +232,14 @@ export async function executeRuntime(
   } else if (currentSection === 'cycles') {
     // Resume from current cycle (for checkpoint resumption)
     const cycleIndex = getCurrentCycleIndex(tracker);
-    currentState = { phase: 'CYCLE_START', cycleIndex };
+
+    // If checkpoint was mid-cycle, resume at OBSERVE to get fresh page state
+    // (REASON/ACT require stale pageState/action, so we always re-observe)
+    if (config.restoredRuntimeState?.resumeAtObserve) {
+      currentState = { phase: 'OBSERVE', cycleIndex };
+    } else {
+      currentState = { phase: 'CYCLE_START', cycleIndex };
+    }
   } else if (currentSection === 'wrapup') {
     currentState = { phase: 'WRAPUP' };
   } else if (currentSection === 'complete') {
@@ -233,7 +249,7 @@ export async function executeRuntime(
       message: 'Session already complete',
       tracker,
       history,
-      finalUrl: startUrl,
+      finalUrl: activePage.url(),
       hadAdaptations: false,
     };
   } else {
