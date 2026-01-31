@@ -8,25 +8,26 @@
 // - Token counting with js-tiktoken (cl100k_base encoder)
 // - Smart truncation (head + tail) for markdown content
 // - Element limiting with priority-based selection
-// - All formatting functions for prompt sections
-// - Compressed prompts for repeat cycles (saves ~300-400 tokens)
+// - Section-based system prompt with extend/override customization
 // - Stage-Aware Prompts:
 //   - Execution Prompt: For the main ACTION loop
 //   - Drift Analysis Prompt: For verifying execution path state
 //   - Planning Prompt: For generating initial plans
 //
-// Exported Functions:
+// Key Exports:
+// - DEFAULT_SECTIONS - Default prompt section content
+// - CustomPromptConfig - Interface for customizing prompt sections
+// - buildExecutionPrompt(...) - Build system + situation prompts
+// - buildSystemPromptFromSections(...) - Build system prompt from sections
+// - resolveSection(...) - Resolve section with extend/override logic
 // - countTokens(text) - Count tokens using tiktoken
 // - smartTruncate(text, options) - Head + tail truncation
-// - limitElements(elements, maxCount, maxTokens) - Priority-based element limiting
+// - limitElements(...) - Priority-based element limiting
 // - formatElementsForAI(elements) - Format elements for LLM
-// - buildExecutionPrompt(...) - Build complete system + situation prompts for Action Loop
 // - buildDriftAnalysisPrompt(...) - Build prompt for verifying state drift
-// - extractCycleStrategy(plan) - Extract strategy from first cycle for compression
-// - logTokenUsage(stats) - Log token usage to console (verbose mode)
 // - buildPlanGenerationPrompt(goal) - Build prompt for initial plan generation
 // - buildReplanPrompt(...) - Build prompt for replanning
-// - buildSimpleQuestionPrompt(question) - Build prompt for simple LLM questions
+// - buildStrategyPrompt(...) - Build prompt for strategy extraction
 // - validatePromptSize(...) - Check if prompt fits context
 //
 // =============================================================================
@@ -45,12 +46,202 @@ import type {
   CycleTracker,
   CycleStrategy,
   InterventionPoint,
-  Action
+  Action,
+  WebAction
 } from './types/index.js';
-import { getProgress, getCurrentCycleIndex } from './types/index.js';
+import { getCurrentCycleIndex } from './types/index.js';
 
 // Re-export types for convenience
 export type { CycleStrategy } from './types/index.js';
+
+// -----------------------------------------------------------------------------
+// ACTION DOCUMENTATION (Single Source of Truth)
+// -----------------------------------------------------------------------------
+// TypeScript will error if any WebAction is missing from this record.
+// This ensures prompt stays in sync with implemented actions.
+
+/**
+ * Documentation for each action type, used to generate prompt content.
+ * Adding a new WebAction requires adding documentation here (compile-time enforced).
+ */
+export const ACTION_DOCS: Record<WebAction, string> = {
+  click: 'Click one element. Requires "elementId". Use for buttons, links, and elements that may trigger navigation or DOM changes.',
+  multi_click: 'Click multiple checkboxes/toggles in one step. Requires "elementIds" array. ONLY for form controls that do NOT trigger navigation.',
+  type: 'Type text into input. Requires "elementId" and "text"',
+  hover: 'Hover over element to trigger dropdowns, tooltips, or reveal hidden content. Requires "elementId"',
+  select: 'Select option from <select> dropdown. Requires "elementId" and "text" (the option value or label)',
+  checkbox: 'Toggle checkbox/switch. Requires "elementId", optional "text" ("check"|"uncheck"|"toggle", default: toggle)',
+  drag: 'Drag element to another element. Requires "elementId" (source) and "text" (target element index)',
+  scroll_to_element: 'Scroll element into view. Requires "elementId". PREFERRED for [OFFSCREEN] elements.',
+  scroll: 'Blind scroll page. Requires "text" ("up"|"down"). Only for exploring when target not yet visible.',
+  navigate: 'Go to URL. Requires "text" (the URL)',
+  wait: 'Wait for page to update',
+};
+
+/**
+ * Generate the AVAILABLE ACTIONS section from ACTION_DOCS.
+ * Ensures prompt always matches implemented actions.
+ */
+export function buildActionsPrompt(): string {
+  return Object.entries(ACTION_DOCS)
+    .map(([action, desc]) => `- ${action}: ${desc}`)
+    .join('\n');
+}
+
+// -----------------------------------------------------------------------------
+// PROMPT SECTION SYSTEM (Customizable Sections)
+// -----------------------------------------------------------------------------
+
+/**
+ * Available prompt sections that can be customized.
+ * - System sections: Static instructions (same for entire session)
+ * - Situation sections: Dynamic state (changes each step)
+ */
+export type PromptSection =
+  | 'identity'           // Who the agent is
+  | 'terminalRules'      // GOAL_SUCCESS, FAIL guidance
+  | 'recoveryRules'      // REPLAN, RETRY_PERCEPTION guidance
+  | 'executionRules'     // WebAction behavioral rules
+  | 'responseFormat';    // JSON schemas (protocol - typically immutable)
+
+/**
+ * Configuration for a single section.
+ * Can be a string (append shorthand) or full config object.
+ */
+export interface SectionConfig {
+  /** Content to add or replace */
+  content: string;
+  /** If true, replaces default. If false/undefined, appends to default. */
+  override?: boolean;
+}
+
+/**
+ * Custom prompt configuration for presets.
+ * All sections are optional - defaults are used when not provided.
+ * String values are shorthand for { content: string, override: false } (append mode).
+ */
+export interface CustomPromptConfig {
+  identity?: SectionConfig | string;
+  terminalRules?: SectionConfig | string;
+  recoveryRules?: SectionConfig | string;
+  executionRules?: SectionConfig | string;
+  responseFormat?: SectionConfig | string;  // Usually shouldn't override
+}
+
+/**
+ * Default content for each system prompt section.
+ * Designed for clarity and minimal universal coverage.
+ */
+export const DEFAULT_SECTIONS: Record<PromptSection, string> = {
+  identity: `You are a web automation agent. Analyze the page and decide the next action.`,
+
+  terminalRules: `[TERMINAL DECISIONS] - Check first, exit early if applicable
+GOAL_SUCCESS: Declare only when you see CLEAR EVIDENCE of completion:
+  - Confirmation message, success page, or completion indicator visible
+  - All success criteria from [GOAL] section satisfied
+  - NO remaining submit/next buttons for the goal
+FAIL: Declare only when goal is IMPOSSIBLE to achieve:
+  - Required feature doesn't exist on this site
+  - Access denied with no workaround
+  - Critical error with no recovery path`,
+
+  recoveryRules: `[RECOVERY DECISIONS] - Check if stuck before taking action
+RETRY_PERCEPTION: When page state seems stale or incomplete:
+  - Expected elements not visible after action completed
+  - Page appears changed but elements don't match expectations
+REPLAN: When current approach isn't working:
+  - Same action failed multiple times (check [PREVIOUS ACTIONS])
+  - Detected loop pattern in recent actions
+  - Page structure fundamentally different than expected`,
+
+  executionRules: `[EXECUTION RULES]
+- Never click elements already in desired state (checked="true" means done)
+- Never repeat the same action on same elements - check [PREVIOUS ACTIONS]
+- Use scroll_to_element for [OFFSCREEN] elements
+- One action at a time - describe only THIS action in reason field
+- After filling forms, click submit/next to proceed
+
+[AVAILABLE ACTIONS]
+${buildActionsPrompt()}`,
+
+  responseFormat: `[RESPONSE FORMAT] - Choose exactly ONE response type
+
+Terminal (check first):
+{"resultType":"GOAL_SUCCESS","thinking":"evidence visible...","finalAnswer":"what was accomplished"}
+{"resultType":"FAIL","thinking":"why impossible...","error":"specific blocker"}
+
+Recovery (if stuck):
+{"resultType":"REPLAN","thinking":"why current approach failing...","reason":"what needs to change"}
+{"resultType":"RETRY_PERCEPTION","thinking":"why page state unclear..."}
+
+Execution (default - take action):
+{"resultType":"ACTION","thinking":"why this action...","action":{"type":"...","elementId":"...","text":"...","reason":"..."}}
+
+For multi_click only (multiple checkboxes/toggles):
+{"resultType":"ACTION","thinking":"...","action":{"type":"multi_click","elementIds":["6","8"],"reason":"..."}}`
+};
+
+/**
+ * Resolve a section with custom configuration.
+ * - No custom config → use default
+ * - String → append to default
+ * - SectionConfig with override=true → replace default
+ * - SectionConfig with override=false/undefined → append to default
+ */
+export function resolveSection(
+  section: PromptSection,
+  custom: SectionConfig | string | undefined
+): string {
+  const defaultContent = DEFAULT_SECTIONS[section];
+
+  // No custom → use default
+  if (!custom) {
+    return defaultContent;
+  }
+
+  // String shorthand → append mode
+  if (typeof custom === 'string') {
+    return `${defaultContent}\n${custom}`;
+  }
+
+  // Override mode → replace
+  if (custom.override) {
+    return custom.content;
+  }
+
+  // Extend mode (default) → append
+  return `${defaultContent}\n${custom.content}`;
+}
+
+/**
+ * Build the complete system prompt from sections.
+ * System prompt is static for the session - contains instructions only.
+ */
+export function buildSystemPromptFromSections(
+  customConfig?: CustomPromptConfig
+): string {
+  const c = customConfig || {};
+
+  const identity = resolveSection('identity', c.identity);
+  const terminalRules = resolveSection('terminalRules', c.terminalRules);
+  const recoveryRules = resolveSection('recoveryRules', c.recoveryRules);
+  const executionRules = resolveSection('executionRules', c.executionRules);
+  const responseFormat = resolveSection('responseFormat', c.responseFormat);
+
+  return `${identity}
+
+═══════════════════════════════════════════════════════════════
+DECISION FRAMEWORK - Evaluate in this order
+═══════════════════════════════════════════════════════════════
+
+${terminalRules}
+
+${recoveryRules}
+
+${executionRules}
+
+${responseFormat}`;
+}
 
 export type PromptTokenLimits = Pick<
   ResolvedConfig,
@@ -441,93 +632,103 @@ export function formatThinkResult(result: ThinkResult): string {
 }
 
 // -----------------------------------------------------------------------------
-// BASE SYSTEM PROMPT (EXECUTION)
+// SITUATION PROMPT HELPERS
 // -----------------------------------------------------------------------------
 
-function buildBaseSystemPrompt(
+/**
+ * Build the [GOAL] section for situation prompt.
+ * Contains objective, success criteria, and runtime context.
+ */
+function formatGoalSection(
   goalName: string,
   goalDescription: string,
   successCriteria: string,
-  progress: string,
-  customInstructions?: string,
+  goalContext: string
 ): string {
-  const identity = customInstructions || 
-    'You are a web automation agent. Analyze the page and decide the SINGLE next action.';
+  let section = `[GOAL]
+Objective: ${goalName}`;
 
-  return `${identity}
-
-GOAL: ${goalName}
-${goalDescription}
-${successCriteria ? `\nSUCCESS CRITERIA: ${successCriteria}` : ''}
-
-PROGRESS: ${progress}
-
-DECISION PROCESS:
-1. Understand the GOAL and SUCCESS CRITERIA - what you are trying to accomplish
-2. Check PREVIOUS ACTIONS to understand context and avoid repeating failed/same actions
-3. Analyze INTERACTIVE ELEMENTS to see what actions are available on this page
-4. Determine the logical next step that progresses toward the goal, or submit if ready
-
-RULES:
-- NEVER click elements already in desired state (e.g., [checked="true"] means already selected)
-- NEVER repeat the same action on same elements - check PREVIOUS ACTIONS
-- After filling forms or selecting options, click the submit/next button to proceed
-- If needed elements are marked [OFFSCREEN], use scroll_to_element to bring them into view in one step
-- Include page context (title, progress indicators) in your action reason
-
-AVAILABLE ACTIONS:
-- click: Click one element. Requires "elementId" (element index). Use this for buttons, links, and any element whose click may trigger navigation, modals, or DOM changes.
-- multi_click: Select multiple checkboxes, toggles, or radio buttons in one step. Requires "elementIds" array. ONLY use for form controls that do NOT trigger page navigation or major DOM re-renders (e.g. ticking several checkboxes in a list). NEVER use for buttons, links, or elements that open modals/popups. If unsure, use individual "click" actions instead.
-- type: Type text. Requires "elementId" and "text"
-- scroll_to_element: Scroll a specific element into view. Requires "elementId". PREFERRED when you need to reach an [OFFSCREEN] element — brings it into the viewport in one step regardless of distance. Use this instead of repeated "scroll" actions.
-- scroll: Blind scroll the page. Requires "text" ("up" or "down"). Only use when exploring for elements not yet observed (e.g. scanning a long page for content). If you already see the target element marked [OFFSCREEN], use scroll_to_element instead.
-- navigate: Go to URL. Requires "text" (the URL)
-- wait: Wait for page to update
-
-REASON FIELD RULES:
-- The "reason" field must describe ONLY what THIS action does, not future steps
-- BAD: "Scroll down to bring button into view and click it" (describes two actions)
-- GOOD: "Scroll down to bring 'Submit' button into view" (describes only scroll)
-- Each action is separate - you will decide the next action after this one completes
-
-GOAL_SUCCESS RULES:
-- Only declare when you see CLEAR EVIDENCE of completion (confirmation message, results page, success indicator)
-- If there's still a submit/next button visible, you are NOT done
-
-RESPONSE FORMAT (JSON):
-
-For click/type/scroll_to_element/scroll/navigate/wait (single element):
-{
-  "resultType": "ACTION",
-  "thinking": "Why this action based on current page state and previous actions",
-  "action": {
-    "type": "click|type|scroll_to_element|scroll|navigate|wait",
-    "elementId": "14",
-    "text": "optional text",
-    "reason": "Brief description with page context"
+  if (goalDescription) {
+    section += `\n${goalDescription}`;
   }
-}
 
-For multi_click (checkboxes/toggles only):
-{
-  "resultType": "ACTION",
-  "thinking": "These are all checkboxes that won't trigger navigation or re-renders",
-  "action": {
-    "type": "multi_click",
-    "elementIds": ["6", "8", "10"],
-    "reason": "Select the three unchecked option checkboxes"
+  if (successCriteria) {
+    section += `\nSuccess Criteria: ${successCriteria}`;
   }
+
+  // goalContext may have leading newlines from formatGoalContext() - strip them
+  if (goalContext) {
+    section += `\n${goalContext.replace(/^\n+/, '')}`;
+  }
+
+  return section;
 }
 
-{
-  "resultType": "GOAL_SUCCESS",
-  "thinking": "What evidence on the page proves completion",
-  "finalAnswer": "Summary of what was accomplished"
+/**
+ * Build the [PROGRESS] section for situation prompt.
+ * Contains cycle info, steps, and learned strategy.
+ */
+function formatProgressSection(
+  tracker: SessionTracker,
+  planState: PlanState,
+  strategyStr: string
+): string {
+  const lastStep = planState.currentCycle?.cycleSteps[
+    planState.currentCycle.cycleSteps.length - 1
+  ];
+
+  let section = `[PROGRESS]
+Cycle ${planState.currentCycleIdx + 1}/${tracker.cycles.length}: ${tracker.cycleDescription}
+Steps in this cycle: ${planState.stepsInCurrentCycle}`;
+
+  // Add page context from last step if available
+  if (lastStep?.pageContext) {
+    const pc = lastStep.pageContext;
+    if (pc.topic) {
+      section += `\nTopic: ${pc.topic}`;
+    }
+    if (pc.progress) {
+      section += `\nPage Progress: ${pc.progress}`;
+    }
+  }
+
+  if (lastStep) {
+    section += `\nLast action: ${lastStep.stepDescription}`;
+  }
+
+  // strategyStr may have leading newlines from formatStrategy() - strip them
+  if (strategyStr) {
+    section += `\n${strategyStr.replace(/^\n+/, '')}`;
+  }
+
+  return section;
 }
 
-{ "resultType": "FAIL", "thinking": "...", "error": "Why impossible to proceed" }
-{ "resultType": "REPLAN", "thinking": "...", "reason": "Why strategy needs to change" }
-{ "resultType": "RETRY_PERCEPTION", "thinking": "Why page needs to be re-scanned" }`;
+/**
+ * Build the [SESSION STATE] section for situation prompt.
+ * Contains warnings, failures, and user interventions.
+ */
+function formatSessionStateSection(
+  metricsStr: string,
+  interventionStr: string
+): string {
+  if (!metricsStr && !interventionStr) {
+    return '';
+  }
+
+  let section = '[SESSION STATE]';
+
+  if (metricsStr) {
+    // metricsStr has '\n\nSESSION STATE:\n' prefix - strip header, keep content
+    section += metricsStr.replace(/^\n*SESSION STATE:\n?/i, '\n').replace(/^\n+/, '\n');
+  }
+
+  if (interventionStr) {
+    // interventionStr has '\n\nUSER INTERVENTION...' prefix - strip leading newlines
+    section += interventionStr.replace(/^\n+/, '\n');
+  }
+
+  return section;
 }
 
 
@@ -743,47 +944,35 @@ export function buildExecutionPrompt(
   interventionMetrics: InterventionMetrics,
   limits: PromptTokenLimits,
   intervention?: Intervention,
-  customSystemPrompt?: string,
+  customPromptConfig?: CustomPromptConfig | string,
 ): BuildPromptResult {
 
   // 1. Analyze Plan State
   const planState = getPlanState(tracker);
 
-  // 2. Build Context Strings
+  // 2. Extract goal information
   const goalName = preset?.name || goal?.name || 'Task';
-  const goalDescription = preset?.description || goal?.description || ''; // Assuming description handles intervention overrides if any
+  const goalDescription = preset?.description || goal?.description || '';
   const successCriteria = preset?.goal?.successCriteria || goal?.successCriteria || '';
-  const progressStr = getProgress(tracker);
-  const taskContext = formatTaskContext(tracker, planState);
   const goalContextStr = formatGoalContext(goal);
+
+  // 3. Build format helpers
   const interventionStr = formatIntervention(intervention);
   const metricsStr = formatInterventionMetrics(interventionMetrics);
   const historyStr = formatHistory(history, 5, limits.tokenHistory);
   const strategyStr = formatStrategy(tracker.cycleStrategy);
 
+  // 4. Build System Prompt (static instructions)
+  // Uses section-based architecture with extend/override support
+  // Backward compatibility: string is treated as identity section (extend mode)
+  const resolvedConfig: CustomPromptConfig | undefined =
+    typeof customPromptConfig === 'string'
+      ? { identity: customPromptConfig }
+      : customPromptConfig;
+  const systemPrompt = buildSystemPromptFromSections(resolvedConfig);
 
-  // 3. Build System Prompt
-  // Check for compressed mode
-  const useCompressed = false; // logic removed for brevity/safety - always use full prompt for V2 stability for now
-  
-  // Use hybrid injection: custom instructions (persona) + base protocol
-  const systemPrompt = buildBaseSystemPrompt(
-    goalName, 
-    goalDescription, 
-    successCriteria, 
-    progressStr,
-    customSystemPrompt
-  );
-
-  // 4. Build Situation Prompt (The User Message)
-  // Order optimized for LLM decision-making:
-  // 1. Task context (what am I doing?)
-  // 2. Previous actions (what did I do? - critical for loop detection)
-  // 3. Session state (any warnings?)
-  // 4. User intervention (highest priority override)
-  // 5. Current page (where am I?)
-  // 6. Content summary (what's on the page?)
-  // 7. Interactive elements (what can I do?)
+  // 5. Build Situation Prompt (dynamic state)
+  // Order: Goal → Progress → Session State → Previous Actions → Current Page → Elements
 
   // Limit elements
   const limitedElements = limitElements(pageState.elements, limits.tokenMaxElements, limits.tokenElements);
@@ -792,33 +981,48 @@ export function buildExecutionPrompt(
   // Truncate markdown
   const markdownStr = smartTruncate(pageState.markdown, { maxTokens: limits.tokenMarkdown });
 
-  const situationPrompt = `${taskContext}
-${goalContextStr}
-${strategyStr}
-${historyStr}
-${metricsStr}
-${interventionStr}
+  // Build sections
+  const goalSection = formatGoalSection(goalName, goalDescription, successCriteria, goalContextStr);
+  const progressSection = formatProgressSection(tracker, planState, strategyStr);
+  const sessionStateSection = formatSessionStateSection(metricsStr, interventionStr);
 
-CURRENT PAGE:
+  // Assemble situation prompt with clear section markers
+  let situationPrompt = `${goalSection}
+
+${progressSection}`;
+
+  // Add session state only if there's content
+  if (sessionStateSection) {
+    situationPrompt += `\n\n${sessionStateSection}`;
+  }
+
+  // Add history with section marker
+  if (historyStr) {
+    situationPrompt += `\n\n[PREVIOUS ACTIONS]${historyStr.replace(/\n\nPREVIOUS ACTIONS:/, '')}`;
+  }
+
+  situationPrompt += `
+
+[CURRENT PAGE]
 Title: ${pageState.title}
 URL: ${pageState.url}
 
-CONTENT SUMMARY:
+[PAGE CONTENT]
 ${markdownStr}
 
-INTERACTIVE ELEMENTS:
+[INTERACTIVE ELEMENTS]
 ${elementsStr}
 
 What is the next step? Respond in JSON.`;
 
-  // 5. Calculate Token Stats
+  // 6. Calculate Token Stats
   const tokenStats: TokenUsageStats = {
     systemTokens: countTokens(systemPrompt),
     situationTokens: countTokens(situationPrompt),
     totalTokens: countTokens(systemPrompt) + countTokens(situationPrompt),
-    isCompressed: useCompressed,
+    isCompressed: false,
     breakdown: {
-      taskContext: countTokens(taskContext),
+      taskContext: countTokens(goalSection + progressSection),
       pageInfo: countTokens(pageState.url + pageState.title),
       markdown: countTokens(markdownStr),
       markdownTruncated: markdownStr.length < pageState.markdown.length,
