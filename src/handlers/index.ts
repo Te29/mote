@@ -6,7 +6,8 @@
  *   SETUP → CYCLE_START → OBSERVE → REASON → ACT → CYCLE_END → WRAPUP → TERMINATED
  */
 
-export { handleSetup, handleWrapup } from './setup-wrapup.js';
+export { handleSetup } from './setup.js';
+export { handleWrapup } from './wrapup.js';
 export { handleCycleStart, handleCycleEnd } from './cycle.js';
 export { handleObserve } from './observe.js';
 export { handleReason } from './reason.js';
