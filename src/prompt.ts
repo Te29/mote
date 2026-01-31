@@ -532,17 +532,152 @@ For multi_click (checkboxes/toggles only):
 
 
 // -----------------------------------------------------------------------------
+// DRIFT ANALYSIS HELPERS
+// -----------------------------------------------------------------------------
+
+/**
+ * Notable changes between two page states.
+ * Used for drift detection without overwhelming the AI with full state dumps.
+ */
+export interface NotableChanges {
+  urlChanged: boolean;
+  expectedUrl?: string;
+  currentUrl?: string;
+  titleChanged: boolean;
+  expectedTitle?: string;
+  currentTitle?: string;
+  modalDetected: boolean;
+  modalElements: string[];
+  targetElementMissing: boolean;
+  elementCountDelta: number;
+  captchaAppeared: boolean;
+}
+
+/**
+ * Detect if an element looks like a modal/dialog/overlay.
+ */
+export function isModalLikeElement(el: ElementInfo): boolean {
+  const tag = el.tag.toLowerCase();
+  const role = el.attributes['role']?.toLowerCase();
+  const ariaModal = el.attributes['aria-modal'];
+  const className = el.attributes['class']?.toLowerCase() || '';
+
+  return (
+    tag === 'dialog' ||
+    role === 'dialog' ||
+    role === 'alertdialog' ||
+    ariaModal === 'true' ||
+    className.includes('modal') ||
+    className.includes('overlay') ||
+    className.includes('popup') ||
+    className.includes('lightbox')
+  );
+}
+
+/**
+ * Extract notable changes between expected and current page states.
+ * Provides high-signal drift information without full state comparison.
+ */
+export function extractNotableChanges(
+  expectedState: PageState,
+  currentState: PageState,
+  targetElementId: string
+): NotableChanges {
+  const urlChanged = expectedState.url !== currentState.url;
+  const titleChanged = expectedState.title !== currentState.title;
+
+  // Detect modal-like elements in current state that weren't in expected state
+  const expectedModalIds = new Set(
+    expectedState.elements.filter(isModalLikeElement).map(e => e.selector)
+  );
+  const newModals = currentState.elements.filter(
+    el => isModalLikeElement(el) && !expectedModalIds.has(el.selector)
+  );
+
+  // Check if target element still exists
+  const targetIndex = parseInt(targetElementId, 10);
+  const targetExists = currentState.elements.some(el => el.index === targetIndex);
+
+  // Element count change
+  const elementCountDelta = currentState.elements.length - expectedState.elements.length;
+
+  // Captcha detection
+  const captchaAppeared = !expectedState.captcha?.detected && !!currentState.captcha?.detected;
+
+  return {
+    urlChanged,
+    expectedUrl: urlChanged ? expectedState.url : undefined,
+    currentUrl: urlChanged ? currentState.url : undefined,
+    titleChanged,
+    expectedTitle: titleChanged ? expectedState.title : undefined,
+    currentTitle: titleChanged ? currentState.title : undefined,
+    modalDetected: newModals.length > 0,
+    modalElements: newModals.map(el => `[${el.index}] ${el.tag}: "${el.text}"`),
+    targetElementMissing: !targetExists,
+    elementCountDelta,
+    captchaAppeared,
+  };
+}
+
+/**
+ * Format notable changes as a concise summary for the AI.
+ */
+export function formatNotableChanges(changes: NotableChanges): string {
+  const lines: string[] = [];
+
+  if (changes.urlChanged) {
+    lines.push(`⚠️ URL CHANGED: "${changes.expectedUrl}" → "${changes.currentUrl}"`);
+  }
+
+  if (changes.titleChanged) {
+    lines.push(`⚠️ TITLE CHANGED: "${changes.expectedTitle}" → "${changes.currentTitle}"`);
+  }
+
+  if (changes.modalDetected) {
+    lines.push(`⚠️ NEW MODAL/DIALOG DETECTED:`);
+    changes.modalElements.forEach(el => lines.push(`   ${el}`));
+  }
+
+  if (changes.captchaAppeared) {
+    lines.push(`⚠️ CAPTCHA APPEARED: Page now shows a captcha challenge`);
+  }
+
+  if (changes.targetElementMissing) {
+    lines.push(`⚠️ TARGET ELEMENT MISSING: The planned element is not in current state`);
+  }
+
+  if (Math.abs(changes.elementCountDelta) > 10) {
+    const direction = changes.elementCountDelta > 0 ? 'increased' : 'decreased';
+    lines.push(`ℹ️ Element count ${direction} by ${Math.abs(changes.elementCountDelta)}`);
+  }
+
+  if (lines.length === 0) {
+    return 'No significant page-level changes detected.';
+  }
+
+  return lines.join('\n');
+}
+
+// -----------------------------------------------------------------------------
 // DRIFT ANALYSIS PROMPT (EXECUTION)
 // -----------------------------------------------------------------------------
 
 export function buildDriftAnalysisPrompt(
-    _expectedState: PageState,
+    expectedState: PageState,
     currentState: PageState,
     plannedAction: Action,
     elementContext: string
 ): { systemPrompt: string; userPrompt: string } {
+    // Extract high-signal changes between expected and current state
+    const notableChanges = extractNotableChanges(
+        expectedState,
+        currentState,
+        plannedAction.elementId ?? ''
+    );
+    const changesSection = formatNotableChanges(notableChanges);
+
     const systemPrompt = `You are an adaptive execution expert for browser automation.
-Your job is to compare an EXPECTED page state with the CURRENT page state and decide if the PLANNED ACTION can still proceed.
+Your job is to analyze PAGE CHANGES and decide if the PLANNED ACTION can still proceed.
 
 OUTPUT FORMAT: JSON
 {
@@ -562,15 +697,20 @@ DECISION RULES:
   2. The expected element moved/changed but it's still the same control (return decision WITH adaptedAction containing new elementId)
 
 - cannot_complete: The page changed fundamentally. The goal is no longer achievable on this page.
-  Examples: Complete UI redesign, page no longer has the feature, completely different content.
+  Examples: URL navigated away, modal blocking access, captcha appeared, target feature removed.
 
 ADAPTATION GUIDELINES:
 1. If you find the same element with different elementId/index, provide adaptedAction
 2. If the element text/context changed slightly but it's still the same control, provide adaptedAction
-3. Only return "cannot_complete" if the goal is truly impossible on this page
-4. Be adaptive - minor changes should result in "can_proceed"`;
+3. If a modal appeared, check if it needs to be dismissed first (cannot_complete with clear reason)
+4. If URL changed unexpectedly, this usually means cannot_complete
+5. Only return "cannot_complete" if the goal is truly impossible on this page
+6. Be adaptive - minor changes should result in "can_proceed"`;
 
     const userPrompt = `PLANNED ACTION: ${plannedAction.type} on ${plannedAction.elementId} ("${plannedAction.reason}")
+
+PAGE CHANGES DETECTED:
+${changesSection}
 
 EXPECTED TARGET CONTEXT:
 ${elementContext}
