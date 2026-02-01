@@ -20,6 +20,7 @@ import {
 } from '../prompts.js';
 import { saveCheckpoint, saveSessionPlan } from '../checkpoint.js';
 import { generateStepPrompt, generateVerificationScript } from '../llm-generator.js';
+import { observeAndSavePage } from '../page-observer.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -41,6 +42,11 @@ export async function handleRecording(
   // Update context section from state
   ctx.currentSection = state.section;
   ctx.activeLoopId = state.loopId || null;
+
+  // Observe and save initial page state (only in setup section on first entry)
+  if (state.section === 'setup') {
+    await observeAndSavePage(ctx.page, ctx.presetDir);
+  }
 
   printSectionHeader(state.section, ctx.activeLoopId);
 
@@ -119,8 +125,17 @@ export async function handleRecording(
         continue;
       }
 
+      // If navigation detected, observe and save the new page
+      if (action.type === 'navigate') {
+        // Wait a bit for page to load
+        await ctx.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {
+          // Ignore timeout - page might already be loaded
+        });
+        await observeAndSavePage(ctx.page, ctx.presetDir);
+      }
+
       // Handle recorded action
-      const decision = await promptAfterAction(action);
+      const decision = await promptAfterAction(action, ctx.presetDir);
 
       if (decision.action === 'keep') {
         await saveKeptAction(ctx, state.section, action, decision.description, decision.generatePrompt);
@@ -128,7 +143,7 @@ export async function handleRecording(
         // Edit selector - put action back with new selector
         action.selector = decision.newSelector;
         // Re-prompt for this action (one retry only)
-        const retryDecision = await promptAfterAction(action);
+        const retryDecision = await promptAfterAction(action, ctx.presetDir);
         if (retryDecision.action === 'keep') {
           await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt);
         } else if (retryDecision.action === 'menu') {

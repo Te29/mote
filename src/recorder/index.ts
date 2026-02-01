@@ -20,6 +20,8 @@ export type {
   RecordingInitResult,
 } from './types.js';
 
+export type { SavedPageObservation } from './page-observer.js';
+
 // Bootstrap
 export { bootstrapRecorder } from './bootstrap.js';
 
@@ -32,3 +34,10 @@ export {
   promptAfterAction,
   promptPhaseControl,
 } from './prompts.js';
+
+// Page observer (for external use if needed)
+export {
+  observeAndSavePage,
+  getObservedPages,
+  clearObservedPages,
+} from './page-observer.js';

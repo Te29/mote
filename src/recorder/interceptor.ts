@@ -391,6 +391,12 @@ const CAPTURE_SCRIPT = `
       }
     }
 
+    // Priority 8: Text content for other elements (before bare tag fallback)
+    // Use text content as a selector if the element has meaningful text
+    if (candidates.length === 0 && text && text.length > 0 && text.length < 100) {
+      candidates.push(tag + ':has-text("' + text.replace(/"/g, '\\\\"') + '")');
+    }
+
     // Last resort: bare tag
     if (candidates.length === 0) {
       candidates.push(tag);

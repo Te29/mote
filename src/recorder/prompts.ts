@@ -143,6 +143,7 @@ export async function promptRecordingInit(): Promise<RecordingInitResult> {
  */
 export async function promptAfterAction(
   action: RecordedAction,
+  presetDir?: string,
 ): Promise<ActionDecision> {
   console.log('\n' + colors.gray + '─'.repeat(50) + colors.reset);
   console.log(`${colors.green}✓ Recorded:${colors.reset} ${colors.bright}${action.type.toUpperCase()}${colors.reset}`);
@@ -202,6 +203,11 @@ export async function promptAfterAction(
   }
 
   if (normalized === 'e' || normalized === 'edit') {
+    // Show hint about observation files
+    if (presetDir) {
+      console.log(`${colors.gray}  💡 Tip: Check observations/ folder for all available elements on this page${colors.reset}`);
+    }
+
     const editChoice = await askQuestion(
       `  ${colors.bright}[S]${colors.reset}elector (CSS) / ${colors.bright}[D]${colors.reset}escription (semantic) [S]: `
     );

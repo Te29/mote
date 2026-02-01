@@ -864,6 +864,17 @@ function buildSelectorFingerprint(el: {
     candidates.push(`${tag}[${key}="${escapeCssValue(value)}"]`);
   }
 
+  // Priority 8: Text content for all other elements (before bare tag fallback)
+  // Use text content as a selector if the element has meaningful text
+  if (candidates.length === 0 && text && text.length > 0 && text.length < 100) {
+    const textSelector = `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
+    if (parentSelector) {
+      candidates.push(`${parentSelector} ${textSelector}`);
+    } else {
+      candidates.push(textSelector);
+    }
+  }
+
   // Bare tag as last resort
   if (candidates.length === 0) {
     candidates.push(tag);
