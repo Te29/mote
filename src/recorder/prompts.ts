@@ -155,11 +155,11 @@ export async function promptAfterAction(
   }
   console.log(colors.gray + '─'.repeat(50) + colors.reset);
 
-  // For navigation actions, offer option to skip or mark as dynamic
+  // For navigation actions, offer option to skip or mark as variable
   if (action.type === 'navigate') {
     const navChoice = await askQuestion(
       `\n${colors.yellow}Navigation detected!${colors.reset}\n` +
-      `  ${colors.bright}[K]${colors.reset}eep URL / ${colors.bright}[D]${colors.reset}iscard / ${colors.bright}[Y]${colors.reset}namic URL (don't record) [K]: `,
+      `  ${colors.bright}[K]${colors.reset}eep URL / ${colors.bright}[D]${colors.reset}iscard / ${colors.bright}[V]${colors.reset}ariable URL (skip recording) [K]: `,
     );
 
     if (navChoice === '__SIGINT__') {
@@ -172,8 +172,8 @@ export async function promptAfterAction(
       console.log(`${colors.yellow}⏭ Navigation discarded${colors.reset}`);
       return { action: 'discard' };
     }
-    if (normalized === 'y' || normalized === 'dynamic') {
-      console.log(`${colors.cyan}✓ Marked as dynamic navigation (not recorded)${colors.reset}`);
+    if (normalized === 'v' || normalized === 'variable') {
+      console.log(`${colors.cyan}✓ Variable URL - navigation not recorded${colors.reset}`);
       return { action: 'discard' };
     }
     // Fall through to keep the navigation
