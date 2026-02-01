@@ -243,6 +243,39 @@ export async function runAgent(
 export { extractPathFromHistory } from './runtime/result.js';
 
 // -----------------------------------------------------------------------------
+// RECORDER MODE
+// -----------------------------------------------------------------------------
+
+import { bootstrapRecorder, executeRecorder } from './recorder/index.js';
+
+/**
+ * Run the preset recorder - interactive mode to create presets by recording actions.
+ */
+export async function runRecorder(): Promise<void> {
+  console.log('\n🎬 Starting Mote Recorder...\n');
+
+  try {
+    const { context, presetDir } = await bootstrapRecorder({
+      llmBaseUrl: process.env.LLM_BASE_URL,
+      llmApiKey: process.env.LLM_API_KEY,
+      llmModel: process.env.LLM_MODEL,
+    });
+
+    const result = await executeRecorder(context);
+
+    if (result.success) {
+      console.log(`\n✅ Preset created: ${result.presetDir}`);
+    } else {
+      console.log(`\n❌ Recording failed: ${result.message}`);
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error(`\n💥 Recorder error: ${error}`);
+    process.exit(1);
+  }
+}
+
+// -----------------------------------------------------------------------------
 // CLI EXECUTION
 // -----------------------------------------------------------------------------
 
@@ -253,9 +286,14 @@ export { extractPathFromHistory } from './runtime/result.js';
 import { pathToFileURL } from 'url';
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runAgent().then((result) => {
-    if (!result.success) {
-      process.exit(1);
-    }
-  });
+  // Check for --record flag
+  if (process.argv.includes('--record')) {
+    runRecorder();
+  } else {
+    runAgent().then((result) => {
+      if (!result.success) {
+        process.exit(1);
+      }
+    });
+  }
 }

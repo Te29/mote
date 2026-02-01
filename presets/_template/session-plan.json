@@ -1,0 +1,25 @@
+{
+  "goalSummary": "",
+  "cycleDescription": "",
+  "numberOfCycles": 1,
+
+  "setupSteps": [],
+
+  "cyclePlan": {
+    "startUrl": "",
+    "units": [],
+    "verification": {
+      "script": "",
+      "description": "",
+      "onFailure": "llm"
+    }
+  },
+
+  "wrapupSteps": [],
+
+  "verification": {
+    "script": "",
+    "description": "",
+    "onFailure": "llm"
+  }
+}

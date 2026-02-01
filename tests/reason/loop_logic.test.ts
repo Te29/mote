@@ -70,7 +70,7 @@ describe('Loop Logic in handleReason', () => {
         loopId: 'loop-1',
         iterations: 2,
         steps: [
-          { stepId: 's1', description: 'Step 1', action: { type: 'wait', reason: 'wait' } }
+          { stepId: 's1', description: 'Step 1', action: { type: 'wait', reason: 'wait' }, llmRequired: false }
         ]
       }
     };
@@ -96,7 +96,7 @@ describe('Loop Logic in handleReason', () => {
         loopId: 'loop-itr',
         iterations: 2,
         steps: [
-          { stepId: 's1', description: 'Step 1', action: { type: 'wait', reason: 'w' } }
+          { stepId: 's1', description: 'Step 1', action: { type: 'wait', reason: 'w' }, llmRequired: false }
         ]
       }
     };
@@ -137,7 +137,7 @@ describe('Loop Logic in handleReason', () => {
         loopId: 'loop-itr-exit',
         iterations: 1, // Only 1 iteration
         steps: [
-          { stepId: 's1', description: 'Step 1', action: { type: 'wait', reason: 'w' } }
+          { stepId: 's1', description: 'Step 1', action: { type: 'wait', reason: 'w' }, llmRequired: false }
         ]
       }
     };
@@ -145,7 +145,7 @@ describe('Loop Logic in handleReason', () => {
     // Next unit after loop
     const nextUnit: PlanUnit = {
       type: 'step',
-      step: { stepId: 's2', description: 'After Loop', action: { type: 'wait', reason: 'done' } }
+      step: { stepId: 's2', description: 'After Loop', action: { type: 'wait', reason: 'done' }, llmRequired: false }
     };
     
     const ctx = createMockContext({ units: [loopUnit, nextUnit] });
@@ -185,7 +185,7 @@ describe('Loop Logic in handleReason', () => {
           },
           maxIterations: 10,
         },
-        steps: [{ stepId: 's1', description: 'S1', action: { type: 'wait', reason: 'w' } }]
+        steps: [{ stepId: 's1', description: 'S1', action: { type: 'wait', reason: 'w' }, llmRequired: false }]
       }
     };
     
@@ -224,11 +224,11 @@ describe('Loop Logic in handleReason', () => {
           },
           maxIterations: 10,
         },
-        steps: [{ stepId: 's1', description: 'S1', action: { type: 'wait', reason: 'w' } }]
+        steps: [{ stepId: 's1', description: 'S1', action: { type: 'wait', reason: 'w' }, llmRequired: false }]
       }
     };
     
-    const nextUnit: PlanUnit = { type: 'step', step: { stepId: 's2', description: 'S2' } };
+    const nextUnit: PlanUnit = { type: 'step', step: { stepId: 's2', description: 'S2', llmRequired: false } };
 
     // Mock evaluate to return false (marker doesn't exist)
     const mockEvaluate = vi.fn().mockResolvedValue(false);

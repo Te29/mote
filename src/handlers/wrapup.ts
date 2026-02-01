@@ -16,6 +16,7 @@ import type { StepTracker, StepResult } from '../types/index.js';
 import { createTimestamp } from '../types/session.js';
 import { executeAction } from '../act/act.js';
 import { saveCheckpoint, type SessionCheckpoint, type CheckpointRuntimeState } from '../utils/checkpoint.js';
+import { executeVerification } from '../utils/verification.js';
 import * as path from 'path';
 
 /**
@@ -30,7 +31,28 @@ export async function handleWrapup(
 
   // Check if SessionPlan has wrapup steps
   if (!ctx.sessionPlan?.wrapupSteps || ctx.sessionPlan.wrapupSteps.length === 0) {
-    console.log('  No wrapup steps defined, completing session...');
+    console.log('  No wrapup steps defined');
+
+    // Still run wrapup verification if defined (validates final state)
+    if (ctx.sessionPlan?.wrapupVerification) {
+      console.log('🔍 Running wrapup verification...');
+      const verifyResult = await executeVerification(
+        ctx.runtime.activePage,
+        ctx.sessionPlan.wrapupVerification,
+      );
+
+      if (!verifyResult.passed) {
+        console.error(`❌ Wrapup verification failed: ${verifyResult.detail || verifyResult.error}`);
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `Wrapup verification failed: ${verifyResult.detail || verifyResult.error}`,
+        };
+      }
+      console.log(`✅ Wrapup verification passed: ${verifyResult.detail || 'OK'}`);
+    }
+
+    console.log('  Completing session...');
     return {
       phase: 'TERMINATED',
       success: true,
@@ -48,7 +70,27 @@ export async function handleWrapup(
 
   // Check if all wrapup steps are complete
   if (executedWrapupSteps >= totalWrapupSteps) {
-    console.log(`✅ Wrapup complete (${executedWrapupSteps}/${totalWrapupSteps} steps)`);
+    console.log(`✅ Wrapup steps complete (${executedWrapupSteps}/${totalWrapupSteps} steps)`);
+
+    // Run wrapup verification if defined
+    if (ctx.sessionPlan.wrapupVerification) {
+      console.log('🔍 Running wrapup verification...');
+      const verifyResult = await executeVerification(
+        ctx.runtime.activePage,
+        ctx.sessionPlan.wrapupVerification,
+      );
+
+      if (!verifyResult.passed) {
+        console.error(`❌ Wrapup verification failed: ${verifyResult.detail || verifyResult.error}`);
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `Wrapup verification failed: ${verifyResult.detail || verifyResult.error}`,
+        };
+      }
+      console.log(`✅ Wrapup verification passed: ${verifyResult.detail || 'OK'}`);
+    }
+
     return {
       phase: 'TERMINATED',
       success: true,

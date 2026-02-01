@@ -1,0 +1,37 @@
+{
+  "name": "",
+  "description": "",
+
+  "goal": {
+    "name": "",
+    "description": "",
+    "successCriteria": "",
+    "context": {}
+  },
+
+  "startUrl": "",
+
+  "sessionPlanRef": "./session-plan.json",
+
+  "headless": false,
+  "slowMo": 0,
+  "stealth": true,
+
+  "timeoutDefault": 30000,
+  "timeoutNavigation": 60000,
+  "timeoutElement": 10000,
+  "postNavDelay": 500,
+
+  "maxSteps": 100,
+  "engagementMode": "minimal",
+  "stepPause": 0,
+  "verbose": false,
+
+  "tokenMarkdown": 1500,
+  "tokenElements": 2000,
+  "tokenMaxElements": 50,
+  "tokenHistory": 500,
+
+  "enableCheckpointing": false,
+  "checkpointFrequency": 1
+}

@@ -15,6 +15,7 @@ import type { AgentContext } from '../types/context.js';
 import type { StepTracker, StepResult } from '../types/index.js';
 import { createTimestamp } from '../types/session.js';
 import { executeAction } from '../act/act.js';
+import { executeVerification } from '../utils/verification.js';
 
 /**
  * Handle the SETUP state.
@@ -28,7 +29,28 @@ export async function handleSetup(
 
   // Check if SessionPlan has setup steps
   if (!ctx.sessionPlan?.setupSteps || ctx.sessionPlan.setupSteps.length === 0) {
-    console.log('  No setup steps defined, proceeding to cycles...');
+    console.log('  No setup steps defined');
+
+    // Still run setup verification if defined (validates initial state)
+    if (ctx.sessionPlan?.setupVerification) {
+      console.log('🔍 Running setup verification...');
+      const verifyResult = await executeVerification(
+        ctx.runtime.activePage,
+        ctx.sessionPlan.setupVerification,
+      );
+
+      if (!verifyResult.passed) {
+        console.error(`❌ Setup verification failed: ${verifyResult.detail || verifyResult.error}`);
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `Setup verification failed: ${verifyResult.detail || verifyResult.error}`,
+        };
+      }
+      console.log(`✅ Setup verification passed: ${verifyResult.detail || 'OK'}`);
+    }
+
+    console.log('  Proceeding to cycles...');
     return {
       phase: 'CYCLE_START',
       cycleIndex: 0,
@@ -45,7 +67,27 @@ export async function handleSetup(
 
   // Check if all setup steps are complete
   if (executedSetupSteps >= totalSetupSteps) {
-    console.log(`✅ Setup complete (${executedSetupSteps}/${totalSetupSteps} steps)`);
+    console.log(`✅ Setup steps complete (${executedSetupSteps}/${totalSetupSteps} steps)`);
+
+    // Run setup verification if defined
+    if (ctx.sessionPlan.setupVerification) {
+      console.log('🔍 Running setup verification...');
+      const verifyResult = await executeVerification(
+        ctx.runtime.activePage,
+        ctx.sessionPlan.setupVerification,
+      );
+
+      if (!verifyResult.passed) {
+        console.error(`❌ Setup verification failed: ${verifyResult.detail || verifyResult.error}`);
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `Setup verification failed: ${verifyResult.detail || verifyResult.error}`,
+        };
+      }
+      console.log(`✅ Setup verification passed: ${verifyResult.detail || 'OK'}`);
+    }
+
     return {
       phase: 'CYCLE_START',
       cycleIndex: 0,

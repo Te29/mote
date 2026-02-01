@@ -293,7 +293,7 @@ export interface CyclePlan {
  *   cyclePlan     → Blueprint for each cycle (can contain loops)
  *   wrapupSteps[] → One-time finalization after cycles (flat, no loops)
  *
- * Execution flow: setup → cycles (repeat cyclePlan) → wrapup
+ * Execution flow: setup → setupVerification → cycles → wrapup → wrapupVerification → verification
  */
 export interface SessionPlan {
   /**
@@ -315,6 +315,13 @@ export interface SessionPlan {
   setupSteps?: StepPlan[];
 
   /**
+   * Optional verification to run after setup steps complete.
+   * Validates initial state is correct before starting cycles.
+   * If fails, can retry setup or abort session.
+   */
+  setupVerification?: VerificationConfig;
+
+  /**
    * Blueprint for each cycle (the repeatable part).
    * Can contain steps and loops.
    */
@@ -334,9 +341,15 @@ export interface SessionPlan {
   wrapupSteps?: StepPlan[];
 
   /**
-   * Optional verification to run when all cycles complete.
-   * Executes before final TERMINATED transition.
-   * More comprehensive than cycle verification - can validate entire session outcome.
+   * Optional verification to run after wrapup steps complete.
+   * Validates cleanup/finalization was successful.
+   */
+  wrapupVerification?: VerificationConfig;
+
+  /**
+   * Optional final verification to run when session completes.
+   * Executes after wrapupVerification, before final TERMINATED transition.
+   * Most comprehensive - can validate entire session outcome end-to-end.
    */
   verification?: VerificationConfig;
 }

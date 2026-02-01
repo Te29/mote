@@ -28,7 +28,8 @@ describe('handleReason State Handler', () => {
         url: 'https://original-url.com', // Different from current URL
         targetElementSelector: '#target-btn',
         expectedPageState: mockPageState,
-        action: cachedAction
+        action: cachedAction,
+        llmRequired: false
     };
 
     it('should proceed with cached action even if URL is different but element matches', async () => {
