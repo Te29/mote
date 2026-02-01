@@ -50,119 +50,41 @@ export async function handleRecording(
 
   printSectionHeader(state.section, ctx.activeLoopId);
 
-  // Set up Ctrl+C handler for phase control
-  let controlRequested = false;
-  // Preserve all existing SIGINT handlers for restoration
-  const originalHandlers = process.listeners('SIGINT').slice() as ((...args: unknown[]) => void)[];
+  while (true) {
+    // Wait for action
+    const action = await interceptor.waitForAction();
 
-  const sigintHandler = () => {
-    controlRequested = true;
-  };
+    // If navigation detected, observe and save the new page
+    if (action.type === 'navigate') {
+      // observeAndSavePage will handle waiting for page load internally
+      await observeAndSavePage(ctx.page, ctx.presetDir);
+    }
 
-  process.removeAllListeners('SIGINT');
-  process.on('SIGINT', sigintHandler);
+    // Handle recorded action
+    const decision = await promptAfterAction(action, ctx.presetDir);
 
-  try {
-    while (true) {
-      // Check for control request
-      if (controlRequested) {
-        controlRequested = false;
+    if (decision.action === 'keep') {
+      await saveKeptAction(ctx, state.section, action, decision.description, decision.generatePrompt);
+    } else if (decision.action === 'edit') {
+      // Edit selector - put action back with new selector
+      action.selector = decision.newSelector;
+      // Re-prompt for this action (one retry only)
+      const retryDecision = await promptAfterAction(action, ctx.presetDir);
+      if (retryDecision.action === 'keep') {
+        await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt);
+      } else if (retryDecision.action === 'menu') {
+        // User requested menu - show phase control
         const control = await promptPhaseControl(state.section, ctx.activeLoopId);
-
-        switch (control) {
-          case 'start-loop':
-            // Loops only make sense in cycle section (setup/wrapup run once)
-            if (state.section !== 'cycle') {
-              console.log('\n⚠️ Loops can only be created in the cycle section.');
-              console.log('   Move to cycle section first (setup → cycle → wrapup).');
-              break;
-            }
-            const loopConfig = await promptLoopConfig();
-            const loopId = `loop-${Date.now()}`;
-            addLoopToSection(ctx, loopId, loopConfig);
-            ctx.activeLoopId = loopId;
-            console.log(`\n🔄 Started loop: ${loopId}`);
-            break;
-
-          case 'end-loop':
-            ctx.activeLoopId = null;
-            console.log('\n✓ Loop ended');
-            break;
-
-          case 'verification':
-            const verifyDesc = await promptVerification();
-            const script = await generateVerificationScript(ctx.llmClient, verifyDesc);
-            addVerificationToSection(ctx, state.section, script, verifyDesc);
-            console.log('\n✓ Verification added');
-            break;
-
-          case 'next-section':
-            interceptor.detach();
-            const nextSection = getNextSection(state.section);
-            if (nextSection) {
-              return { phase: 'RECORDING', section: nextSection };
-            }
-            return { phase: 'FINALIZE' };
-
-          case 'done':
-            interceptor.detach();
-            return { phase: 'FINALIZE' };
-
-          case 'continue':
-          default:
-            printSectionHeader(state.section, ctx.activeLoopId);
-            break;
-        }
-        continue;
+        await handlePhaseControl(control, state, ctx, interceptor);
       }
-
-      // Wait for action with timeout to check for control requests
-      // Uses waitForActionWithTimeout to avoid orphaned resolver event loss
-      const action = await interceptor.waitForActionWithTimeout(500);
-
-      if (action === null) {
-        // Timeout - check for control request and loop
-        continue;
-      }
-
-      // If navigation detected, observe and save the new page
-      if (action.type === 'navigate') {
-        // Wait a bit for page to load
-        await ctx.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {
-          // Ignore timeout - page might already be loaded
-        });
-        await observeAndSavePage(ctx.page, ctx.presetDir);
-      }
-
-      // Handle recorded action
-      const decision = await promptAfterAction(action, ctx.presetDir);
-
-      if (decision.action === 'keep') {
-        await saveKeptAction(ctx, state.section, action, decision.description, decision.generatePrompt);
-      } else if (decision.action === 'edit') {
-        // Edit selector - put action back with new selector
-        action.selector = decision.newSelector;
-        // Re-prompt for this action (one retry only)
-        const retryDecision = await promptAfterAction(action, ctx.presetDir);
-        if (retryDecision.action === 'keep') {
-          await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt);
-        } else if (retryDecision.action === 'menu') {
-          // User requested menu during retry
-          controlRequested = true;
-        }
-        // If retry is 'discard' or 'edit', silently drop it
-      } else if (decision.action === 'menu') {
-        // User requested control menu - trigger it on next loop iteration
-        controlRequested = true;
-      }
-      // 'discard' - do nothing, continue to next action
+      // If retry is 'discard' or 'edit', silently drop it
+    } else if (decision.action === 'menu') {
+      // User requested control menu - show it
+      const control = await promptPhaseControl(state.section, ctx.activeLoopId);
+      const result = await handlePhaseControl(control, state, ctx, interceptor);
+      if (result) return result; // Exit recording if done or moving to next section
     }
-  } finally {
-    // Restore all original SIGINT handlers
-    process.removeAllListeners('SIGINT');
-    for (const handler of originalHandlers) {
-      process.on('SIGINT', handler);
-    }
+    // 'discard' - do nothing, continue to next action
   }
 }
 
@@ -224,13 +146,72 @@ async function saveKeptAction(
   console.log(`   ✓ Step saved: ${stepId}`);
 }
 
+/**
+ * Handle phase control menu actions.
+ * Returns a new RecorderState if the phase should exit (next section or done).
+ */
+async function handlePhaseControl(
+  control: import('../types.js').PhaseControlAction,
+  state: RecorderState & { phase: 'RECORDING' },
+  ctx: RecorderContext,
+  interceptor: ActionInterceptor,
+): Promise<RecorderState | null> {
+  switch (control) {
+    case 'start-loop':
+      // Loops only make sense in cycle section (setup/wrapup run once)
+      if (state.section !== 'cycle') {
+        console.log('\n⚠️ Loops can only be created in the cycle section.');
+        console.log('   Move to cycle section first (setup → cycle → wrapup).');
+        return null;
+      }
+      const loopConfig = await promptLoopConfig();
+      const loopId = `loop-${Date.now()}`;
+      addLoopToSection(ctx, loopId, loopConfig);
+      ctx.activeLoopId = loopId;
+      console.log(`\n🔄 Started loop: ${loopId}`);
+      printSectionHeader(state.section, ctx.activeLoopId);
+      return null;
+
+    case 'end-loop':
+      ctx.activeLoopId = null;
+      console.log('\n✓ Loop ended');
+      printSectionHeader(state.section, null);
+      return null;
+
+    case 'verification':
+      const verifyDesc = await promptVerification();
+      const script = await generateVerificationScript(ctx.llmClient, verifyDesc);
+      addVerificationToSection(ctx, state.section, script, verifyDesc);
+      console.log('\n✓ Verification added');
+      printSectionHeader(state.section, ctx.activeLoopId);
+      return null;
+
+    case 'next-section':
+      interceptor.detach();
+      const nextSection = getNextSection(state.section);
+      if (nextSection) {
+        return { phase: 'RECORDING', section: nextSection };
+      }
+      return { phase: 'FINALIZE' };
+
+    case 'done':
+      interceptor.detach();
+      return { phase: 'FINALIZE' };
+
+    case 'continue':
+    default:
+      printSectionHeader(state.section, ctx.activeLoopId);
+      return null;
+  }
+}
+
 function printSectionHeader(section: RecordingSection, loopId: string | null): void {
   console.log('\n' + '─'.repeat(50));
   console.log(
     `📍 Recording: ${section.toUpperCase()}` +
       (loopId ? ` (in loop: ${loopId})` : ''),
   );
-  console.log('   Perform actions in browser. Ctrl+C for menu.');
+  console.log('   Perform actions in browser. Press "m" for menu.');
   console.log('─'.repeat(50));
 }
 

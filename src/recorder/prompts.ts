@@ -181,14 +181,8 @@ export async function promptAfterAction(
   }
 
   const choice = await askQuestion(
-    `\n${colors.bright}[K]eep${colors.reset} / ${colors.bright}[D]iscard${colors.reset} / ${colors.bright}[E]dit selector${colors.reset} / ${colors.bright}[M]enu (Ctrl+C)${colors.reset} [K]: `,
+    `\n${colors.bright}[K]eep${colors.reset} / ${colors.bright}[D]iscard${colors.reset} / ${colors.bright}[E]dit selector${colors.reset} / ${colors.bright}[M]enu${colors.reset} [K]: `,
   );
-
-  // Handle SIGINT or 'M' key - show control menu
-  if (choice === '__SIGINT__') {
-    console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
-    return { action: 'menu' };
-  }
 
   const normalized = choice.trim().toLowerCase() || 'k';
 
