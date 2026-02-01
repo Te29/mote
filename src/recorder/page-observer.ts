@@ -64,25 +64,7 @@ export async function observeAndSavePage(
 
   console.log(`   👁️  Observing page: ${url}`);
 
-  // Wait for page to fully load before observing
-  // This prevents false positives (empty elements, captcha detection) when page hasn't loaded yet
-  try {
-    await page.waitForLoadState('load', { timeout: 10000 });
-  } catch {
-    // Timeout is okay, page might already be loaded
-  }
-
-  // Additional wait for dynamic content and scripts to execute
-  await page.waitForTimeout(2000);
-
-  // Try to wait for network to be idle (indicates AJAX/dynamic content loaded)
-  try {
-    await page.waitForLoadState('networkidle', { timeout: 5000 });
-  } catch {
-    // Timeout is okay, some pages have persistent connections
-  }
-
-  // Call observe() to get page state
+  // Call observe() to get page state (observe handles page load wait internally)
   const pageState: PageState = await observe(page);
 
   // Create observations directory if it doesn't exist

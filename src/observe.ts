@@ -133,6 +133,25 @@ export async function observe(
   page: Page,
   targetSelectors?: string[],
 ): Promise<PageState> {
+  // Wait for page to be in a stable state before observing
+  // This prevents observing half-loaded pages with missing elements
+  try {
+    await page.waitForLoadState('load', { timeout: 10000 });
+  } catch {
+    // Timeout is okay, page might already be loaded
+  }
+
+  // Additional wait for dynamic content and scripts to execute
+  // Many modern web apps need time for JavaScript to render content
+  await page.waitForTimeout(1500);
+
+  // Try to wait for network to be idle (indicates AJAX/dynamic content loaded)
+  try {
+    await page.waitForLoadState('networkidle', { timeout: 5000 });
+  } catch {
+    // Timeout is okay, some pages have persistent connections
+  }
+
   // Get page info using browser module
   const { url, title } = await getPageContent(page);
 
