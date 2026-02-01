@@ -203,26 +203,21 @@ export async function promptAfterAction(
     }
 
     const editChoice = await askQuestion(
-      `  ${colors.bright}[S]${colors.reset}elector (CSS) / ${colors.bright}[D]${colors.reset}escription (semantic) [S]: `
+      `  ${colors.bright}[S]${colors.reset}elector (CSS) / ${colors.bright}[D]${colors.reset}escription (semantic) / ${colors.bright}[C]${colors.reset}ancel [S]: `
     );
-
-    if (editChoice === '__SIGINT__') {
-      console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
-      return { action: 'menu' };
-    }
 
     const editType = editChoice.trim().toLowerCase() || 's';
 
-    if (editType === 'd' || editType === 'description') {
+    // Allow user to cancel/give up on editing
+    if (editType === 'c' || editType === 'cancel') {
+      console.log(`${colors.yellow}⏭ Edit cancelled, keeping original selector${colors.reset}`);
+      // Fall through to keep action with description prompt
+    } else if (editType === 'd' || editType === 'description') {
       // Semantic description - LLM will find element at runtime
-      const description = await askQuestion(`  Describe element (e.g., "search bar", "login button"): `);
-      if (description === '__SIGINT__') {
-        console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
-        return { action: 'menu' };
-      }
+      const description = await askQuestion(`  Describe element (e.g., "search bar", "login button") or press Enter to cancel: `);
 
       if (!description.trim()) {
-        console.log(`${colors.red}  Invalid description, keeping original${colors.reset}`);
+        console.log(`${colors.yellow}  Edit cancelled, keeping original${colors.reset}`);
         // Fall through to keep
       } else {
         // Use special format to indicate this is a semantic description
@@ -231,20 +226,17 @@ export async function promptAfterAction(
         return { action: 'edit', newSelector: semanticSelector };
       }
     } else {
-      // CSS selector
-      const newSelector = await askQuestion(`  New CSS selector: `);
-      if (newSelector === '__SIGINT__') {
-        console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
-        return { action: 'menu' };
-      }
+      // CSS selector (default for 's' or 'selector')
+      const newSelector = await askQuestion(`  New CSS selector (or press Enter to cancel): `);
 
       if (!newSelector.trim()) {
-        console.log(`${colors.red}  Invalid selector, keeping original${colors.reset}`);
+        console.log(`${colors.yellow}  Edit cancelled, keeping original${colors.reset}`);
         // Fall through to keep
       } else {
         return { action: 'edit', newSelector: newSelector.trim() };
       }
     }
+    // If cancelled or no valid edit, fall through to keep with description prompt
   }
 
   // Keep - get additional info
