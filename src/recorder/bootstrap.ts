@@ -28,6 +28,7 @@ export interface RecorderBootstrapConfig {
   /** Browser configuration */
   headless?: boolean;
   slowMo?: number;
+  profilePath?: string;
   stealth?: boolean;
 
   /** Optional preset directory to resume */
@@ -126,6 +127,7 @@ async function startFreshRecording(
   const browserConfig: Partial<ResolvedConfig> = {
     headless: config.headless ?? false,
     slowMo: config.slowMo ?? 0,
+    profilePath: config.profilePath ?? './mote-recorder-profile',
     stealth: config.stealth ?? true,
     timeoutDefault: 30000,
     timeoutNavigation: 60000,
@@ -189,6 +191,7 @@ async function resumeFromCheckpoint(
   const browserConfig: Partial<ResolvedConfig> = {
     headless: config.headless ?? false,
     slowMo: config.slowMo ?? 0,
+    profilePath: config.profilePath ?? './mote-recorder-profile',
     stealth: config.stealth ?? true,
     timeoutDefault: 30000,
     timeoutNavigation: 60000,

@@ -13,6 +13,7 @@ traces/
 
 # Browser profile (contains cookies, logins - DO NOT COMMIT!)
 mote-profile/
+mote-recorder-profile/
 
 # Screenshots
 screenshots/
