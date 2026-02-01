@@ -129,7 +129,8 @@ export type ActionDecision =
       generateVerification: boolean;
     }
   | { action: 'discard' }
-  | { action: 'edit'; newSelector: string };
+  | { action: 'edit'; newSelector: string }
+  | { action: 'menu' };
 
 /**
  * Phase control action from user.

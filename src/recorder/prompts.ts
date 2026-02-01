@@ -164,7 +164,7 @@ export async function promptAfterAction(
 
     if (navChoice === '__SIGINT__') {
       console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
-      return { action: 'discard' };
+      return { action: 'menu' };
     }
 
     const normalized = navChoice.trim().toLowerCase() || 'k';
@@ -183,13 +183,18 @@ export async function promptAfterAction(
     `\n${colors.bright}[K]eep${colors.reset} / ${colors.bright}[D]iscard${colors.reset} / ${colors.bright}[E]dit selector${colors.reset} / ${colors.bright}[M]enu (Ctrl+C)${colors.reset} [K]: `,
   );
 
-  // Handle SIGINT - treat as discard and trigger control menu
+  // Handle SIGINT or 'M' key - show control menu
   if (choice === '__SIGINT__') {
     console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
-    return { action: 'discard' };
+    return { action: 'menu' };
   }
 
   const normalized = choice.trim().toLowerCase() || 'k';
+
+  if (normalized === 'm' || normalized === 'menu') {
+    console.log(`${colors.cyan}📋 Opening control menu${colors.reset}`);
+    return { action: 'menu' };
+  }
 
   if (normalized === 'd' || normalized === 'discard') {
     console.log(`${colors.yellow}⏭ Discarded${colors.reset}`);
@@ -202,8 +207,8 @@ export async function promptAfterAction(
     );
 
     if (editChoice === '__SIGINT__') {
-      console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
-      return { action: 'discard' };
+      console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+      return { action: 'menu' };
     }
 
     const editType = editChoice.trim().toLowerCase() || 's';
@@ -212,8 +217,8 @@ export async function promptAfterAction(
       // Semantic description - LLM will find element at runtime
       const description = await askQuestion(`  Describe element (e.g., "search bar", "login button"): `);
       if (description === '__SIGINT__') {
-        console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
-        return { action: 'discard' };
+        console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+        return { action: 'menu' };
       }
 
       if (!description.trim()) {
@@ -229,8 +234,8 @@ export async function promptAfterAction(
       // CSS selector
       const newSelector = await askQuestion(`  New CSS selector: `);
       if (newSelector === '__SIGINT__') {
-        console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
-        return { action: 'discard' };
+        console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+        return { action: 'menu' };
       }
 
       if (!newSelector.trim()) {
@@ -245,24 +250,24 @@ export async function promptAfterAction(
   // Keep - get additional info
   const description = await askQuestion(`  ${colors.bright}Step description:${colors.reset} `);
   if (description === '__SIGINT__') {
-    console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
-    return { action: 'discard' };
+    console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+    return { action: 'menu' };
   }
 
   const genPromptStr = await askQuestion(
     `  Generate step prompt with LLM? ${colors.dim}[y/N]:${colors.reset} `,
   );
   if (genPromptStr === '__SIGINT__') {
-    console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
-    return { action: 'discard' };
+    console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+    return { action: 'menu' };
   }
 
   const genVerifyStr = await askQuestion(
     `  Generate step verification? ${colors.dim}[y/N]:${colors.reset} `,
   );
   if (genVerifyStr === '__SIGINT__') {
-    console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
-    return { action: 'discard' };
+    console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+    return { action: 'menu' };
   }
 
   console.log(`${colors.green}✓ Step saved${colors.reset}`);

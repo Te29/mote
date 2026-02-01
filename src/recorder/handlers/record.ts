@@ -131,8 +131,14 @@ export async function handleRecording(
         const retryDecision = await promptAfterAction(action);
         if (retryDecision.action === 'keep') {
           await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt);
+        } else if (retryDecision.action === 'menu') {
+          // User requested menu during retry
+          controlRequested = true;
         }
         // If retry is 'discard' or 'edit', silently drop it
+      } else if (decision.action === 'menu') {
+        // User requested control menu - trigger it on next loop iteration
+        controlRequested = true;
       }
       // 'discard' - do nothing, continue to next action
     }
