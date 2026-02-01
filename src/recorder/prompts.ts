@@ -43,11 +43,34 @@ export function closeRecorderReadline(): void {
 
 /**
  * Ask a question and return the answer.
+ * Returns '__SIGINT__' if Ctrl+C is pressed during the question.
  */
 function askQuestion(prompt: string): Promise<string> {
   const rli = getReadlineInterface();
   return new Promise((resolve) => {
-    rli.question(prompt, resolve);
+    let answered = false;
+
+    const sigintHandler = () => {
+      if (!answered) {
+        answered = true;
+        // Clear the current line and move to next
+        if (process.stdout.isTTY) {
+          process.stdout.write('\n');
+        }
+        resolve('__SIGINT__');
+      }
+    };
+
+    // Listen for SIGINT during this question
+    process.once('SIGINT', sigintHandler);
+
+    rli.question(prompt, (answer) => {
+      if (!answered) {
+        answered = true;
+        process.removeListener('SIGINT', sigintHandler);
+        resolve(answer);
+      }
+    });
   });
 }
 
@@ -132,9 +155,40 @@ export async function promptAfterAction(
   }
   console.log(colors.gray + '─'.repeat(50) + colors.reset);
 
+  // For navigation actions, offer option to skip or mark as dynamic
+  if (action.type === 'navigate') {
+    const navChoice = await askQuestion(
+      `\n${colors.yellow}Navigation detected!${colors.reset}\n` +
+      `  ${colors.bright}[K]${colors.reset}eep URL / ${colors.bright}[D]${colors.reset}iscard / ${colors.bright}[Y]${colors.reset}namic URL (don't record) [K]: `,
+    );
+
+    if (navChoice === '__SIGINT__') {
+      console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+      return { action: 'discard' };
+    }
+
+    const normalized = navChoice.trim().toLowerCase() || 'k';
+    if (normalized === 'd' || normalized === 'discard') {
+      console.log(`${colors.yellow}⏭ Navigation discarded${colors.reset}`);
+      return { action: 'discard' };
+    }
+    if (normalized === 'y' || normalized === 'dynamic') {
+      console.log(`${colors.cyan}✓ Marked as dynamic navigation (not recorded)${colors.reset}`);
+      return { action: 'discard' };
+    }
+    // Fall through to keep the navigation
+  }
+
   const choice = await askQuestion(
-    `\n${colors.bright}[K]eep${colors.reset} / ${colors.bright}[D]iscard${colors.reset} / ${colors.bright}[E]dit selector${colors.reset} [K]: `,
+    `\n${colors.bright}[K]eep${colors.reset} / ${colors.bright}[D]iscard${colors.reset} / ${colors.bright}[E]dit selector${colors.reset} / ${colors.bright}[M]enu (Ctrl+C)${colors.reset} [K]: `,
   );
+
+  // Handle SIGINT - treat as discard and trigger control menu
+  if (choice === '__SIGINT__') {
+    console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+    return { action: 'discard' };
+  }
+
   const normalized = choice.trim().toLowerCase() || 'k';
 
   if (normalized === 'd' || normalized === 'discard') {
@@ -154,12 +208,26 @@ export async function promptAfterAction(
 
   // Keep - get additional info
   const description = await askQuestion(`  ${colors.bright}Step description:${colors.reset} `);
+  if (description === '__SIGINT__') {
+    console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
+    return { action: 'discard' };
+  }
+
   const genPromptStr = await askQuestion(
     `  Generate step prompt with LLM? ${colors.dim}[y/N]:${colors.reset} `,
   );
+  if (genPromptStr === '__SIGINT__') {
+    console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
+    return { action: 'discard' };
+  }
+
   const genVerifyStr = await askQuestion(
     `  Generate step verification? ${colors.dim}[y/N]:${colors.reset} `,
   );
+  if (genVerifyStr === '__SIGINT__') {
+    console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
+    return { action: 'discard' };
+  }
 
   console.log(`${colors.green}✓ Step saved${colors.reset}`);
 
@@ -194,7 +262,11 @@ export async function promptPhaseControl(
     console.log(`  ${colors.bright}[E]${colors.reset}nd loop`);
   }
   console.log(`  ${colors.bright}[V]${colors.reset}erification - Add verification script`);
-  console.log(`  ${colors.bright}[N]${colors.reset}ext section`);
+
+  // Show what the next phase will be
+  const nextPhase = section === 'setup' ? 'cycle' : section === 'cycle' ? 'wrapup' : 'finalize';
+  console.log(`  ${colors.bright}[N]${colors.reset}ext phase → ${colors.cyan}${nextPhase}${colors.reset}`);
+
   console.log(`  ${colors.bright}[D]${colors.reset}one - Finish recording`);
   console.log(colors.gray + '─'.repeat(50) + colors.reset);
 
