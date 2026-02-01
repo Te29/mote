@@ -430,7 +430,11 @@ const CAPTURE_SCRIPT = `
       return; // Will capture via input event instead
     }
 
-    var fingerprint = buildSelectorFingerprint(target);
+    // If clicking on a generic/meaningless element (SVG, SPAN, DIV without attributes),
+    // walk up to find a more meaningful parent element
+    var meaningfulElement = findMeaningfulElement(target);
+
+    var fingerprint = buildSelectorFingerprint(meaningfulElement);
 
     if (typeof window.__moteRecordAction === 'function') {
       window.__moteRecordAction({
@@ -443,6 +447,73 @@ const CAPTURE_SCRIPT = `
       });
     }
   }, true);
+
+  // Helper to find meaningful parent element
+  function findMeaningfulElement(el) {
+    var current = el;
+    var maxDepth = 5; // Don't go too far up
+    var depth = 0;
+
+    while (current && depth < maxDepth) {
+      var tag = current.tagName.toLowerCase();
+      var attrs = current.attributes || [];
+
+      // Check if this element is meaningful
+      var hasId = current.id;
+      var hasDataTestId = current.getAttribute('data-testid') || current.getAttribute('data-test-id') || current.getAttribute('data-test');
+      var hasAriaLabel = current.getAttribute('aria-label');
+      var hasRole = current.getAttribute('role');
+      var isButton = tag === 'button' || tag === 'a';
+      var isLabel = tag === 'label';
+
+      // For labels, try to find associated input
+      if (isLabel) {
+        var forAttr = current.getAttribute('for');
+        if (forAttr) {
+          var input = document.getElementById(forAttr);
+          if (input && (input.type === 'checkbox' || input.type === 'radio')) {
+            return input;
+          }
+        }
+        // Check for child input
+        var childInput = current.querySelector('input[type="checkbox"], input[type="radio"]');
+        if (childInput) {
+          return childInput;
+        }
+      }
+
+      // If clicking inside a custom checkbox/radio wrapper, find the input
+      if (tag === 'svg' || tag === 'span' || tag === 'div') {
+        var nearbyInput = current.querySelector('input[type="checkbox"], input[type="radio"]');
+        if (!nearbyInput && current.parentElement) {
+          nearbyInput = current.parentElement.querySelector('input[type="checkbox"], input[type="radio"]');
+        }
+        if (nearbyInput) {
+          return nearbyInput;
+        }
+      }
+
+      // Return current element if it's meaningful
+      if (hasId || hasDataTestId || hasAriaLabel || isButton || (hasRole && hasRole !== 'presentation')) {
+        return current;
+      }
+
+      // Generic elements without attributes - keep walking up
+      if (tag === 'svg' || tag === 'path' || tag === 'i' ||
+          (tag === 'span' && !current.getAttribute('class')) ||
+          (tag === 'div' && attrs.length === 0)) {
+        current = current.parentElement;
+        depth++;
+        continue;
+      }
+
+      // Element has some attributes, consider it meaningful enough
+      return current;
+    }
+
+    // Fallback to original element if nothing better found
+    return el;
+  }
 
   // Input handler (debounced)
   document.addEventListener('input', function(e) {
