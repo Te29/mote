@@ -30,12 +30,19 @@ interface RawActionData {
 /**
  * Intercepts user actions in the browser and converts them to RecordedAction.
  */
+// Global map to dispatch actions to the active interceptor per page
+const activeInterceptors = new WeakMap<Page, ActionInterceptor>();
+
 export class ActionInterceptor {
   private page: Page;
   private actionQueue: RecordedAction[] = [];
   private resolvers: Array<(action: RecordedAction) => void> = [];
   private attached = false;
   private lastUrl: string = '';
+  private navigationHandler: ((frame: import('playwright').Frame) => void) | null = null;
+
+  // Track which pages have the function exposed (static to persist across instances)
+  private static exposedPages = new WeakSet<Page>();
 
   constructor(page: Page) {
     this.page = page;
@@ -49,10 +56,21 @@ export class ActionInterceptor {
   async attach(): Promise<void> {
     if (this.attached) return;
 
-    // Expose callback function to browser context
-    await this.page.exposeFunction('__moteRecordAction', (data: RawActionData) => {
-      this.handleRawAction(data);
-    });
+    // Register this as the active interceptor for the page
+    activeInterceptors.set(this.page, this);
+
+    // Expose callback function to browser context (only once per page)
+    // The callback dispatches to the active interceptor, allowing interceptor replacement
+    if (!ActionInterceptor.exposedPages.has(this.page)) {
+      const page = this.page;
+      await this.page.exposeFunction('__moteRecordAction', (data: RawActionData) => {
+        const activeInterceptor = activeInterceptors.get(page);
+        if (activeInterceptor) {
+          activeInterceptor.handleRawAction(data);
+        }
+      });
+      ActionInterceptor.exposedPages.add(this.page);
+    }
 
     // Inject capture script
     await this.page.addInitScript(CAPTURE_SCRIPT);
@@ -60,8 +78,8 @@ export class ActionInterceptor {
     // Also run it immediately on current page
     await this.page.evaluate(CAPTURE_SCRIPT);
 
-    // Listen for navigation
-    this.page.on('framenavigated', (frame) => {
+    // Listen for navigation (store handler for cleanup)
+    this.navigationHandler = (frame) => {
       if (frame === this.page.mainFrame()) {
         const newUrl = this.page.url();
         if (newUrl !== this.lastUrl && !newUrl.startsWith('about:')) {
@@ -70,7 +88,8 @@ export class ActionInterceptor {
           this.lastUrl = newUrl;
         }
       }
-    });
+    };
+    this.page.on('framenavigated', this.navigationHandler);
 
     this.attached = true;
   }
@@ -191,6 +210,43 @@ export class ActionInterceptor {
   }
 
   /**
+   * Wait for the next user action with timeout.
+   * Returns the action or null if timeout expires.
+   * Properly cleans up to avoid orphaned resolvers consuming events.
+   */
+  waitForActionWithTimeout(timeoutMs: number): Promise<RecordedAction | null> {
+    // Check queue first
+    if (this.actionQueue.length > 0) {
+      return Promise.resolve(this.actionQueue.shift()!);
+    }
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      let timeoutId: ReturnType<typeof setTimeout>;
+
+      const resolver = (action: RecordedAction) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeoutId);
+        resolve(action);
+      };
+
+      this.resolvers.push(resolver);
+
+      timeoutId = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        // Remove our resolver from the array to prevent event loss
+        const index = this.resolvers.indexOf(resolver);
+        if (index !== -1) {
+          this.resolvers.splice(index, 1);
+        }
+        resolve(null);
+      }, timeoutMs);
+    });
+  }
+
+  /**
    * Check if there are pending actions in queue.
    */
   hasPendingActions(): boolean {
@@ -208,6 +264,17 @@ export class ActionInterceptor {
    * Detach interceptor (cleanup).
    */
   detach(): void {
+    // Remove navigation listener
+    if (this.navigationHandler) {
+      this.page.off('framenavigated', this.navigationHandler);
+      this.navigationHandler = null;
+    }
+
+    // Unregister from active interceptors
+    if (activeInterceptors.get(this.page) === this) {
+      activeInterceptors.delete(this.page);
+    }
+
     this.resolvers = [];
     this.actionQueue = [];
     this.attached = false;

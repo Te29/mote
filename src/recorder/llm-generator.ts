@@ -82,6 +82,60 @@ ${action.value ? `- Use value: ${action.value}` : ''}
 }
 
 // -----------------------------------------------------------------------------
+// LLM SCRIPT HELPERS
+// -----------------------------------------------------------------------------
+
+/**
+ * Clean LLM-generated script by removing markdown code blocks and extra whitespace.
+ */
+function cleanLLMScript(script: string): string {
+  let cleaned = script.trim();
+
+  // Remove markdown code blocks (```javascript ... ``` or ``` ... ```)
+  const codeBlockMatch = cleaned.match(/^```(?:javascript|js)?\s*\n?([\s\S]*?)\n?```$/);
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim();
+  }
+
+  // Remove single backticks wrapping the whole thing
+  if (cleaned.startsWith('`') && cleaned.endsWith('`') && !cleaned.includes('\n')) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+
+  return cleaned;
+}
+
+/**
+ * Validate that a string looks like a valid JavaScript function.
+ */
+function isValidScriptFunction(script: string): boolean {
+  // Check for arrow function or function declaration
+  if (!script.startsWith('()') && !script.startsWith('function')) {
+    return false;
+  }
+
+  // Basic bracket balance check
+  const openParens = (script.match(/\(/g) || []).length;
+  const closeParens = (script.match(/\)/g) || []).length;
+  const openBraces = (script.match(/\{/g) || []).length;
+  const closeBraces = (script.match(/\}/g) || []).length;
+
+  if (openParens !== closeParens || openBraces !== closeBraces) {
+    return false;
+  }
+
+  // Must have at least a return or => for arrow functions
+  if (script.startsWith('()')) {
+    // Arrow function: must have =>
+    if (!script.includes('=>')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// -----------------------------------------------------------------------------
 // VERIFICATION SCRIPT GENERATION
 // -----------------------------------------------------------------------------
 
@@ -118,10 +172,11 @@ Only output the script, no explanations or markdown.`;
       max_tokens: 200,
     });
 
-    const script = response.choices[0]?.message?.content?.trim() || '';
+    const rawScript = response.choices[0]?.message?.content?.trim() || '';
+    const script = cleanLLMScript(rawScript);
 
     // Validate it looks like a function
-    if (script.startsWith('()') || script.startsWith('function')) {
+    if (isValidScriptFunction(script)) {
       return script;
     }
 
@@ -189,9 +244,10 @@ Only output the script, no explanations or markdown.`;
       max_tokens: 200,
     });
 
-    const script = response.choices[0]?.message?.content?.trim() || '';
+    const rawScript = response.choices[0]?.message?.content?.trim() || '';
+    const script = cleanLLMScript(rawScript);
 
-    if (script.startsWith('()') || script.startsWith('function')) {
+    if (isValidScriptFunction(script)) {
       return script;
     }
 

@@ -8,6 +8,7 @@ import type {
   RecorderContext,
   RecordingSection,
   LoopConfig,
+  RecordedAction,
 } from '../types.js';
 import type { StepPlan, LoopPlan, PlanUnit } from '../../types/index.js';
 import { ActionInterceptor } from '../interceptor.js';
@@ -110,10 +111,8 @@ export async function handleRecording(
       }
 
       // Wait for action with timeout to check for control requests
-      const action = await Promise.race([
-        interceptor.waitForAction(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
-      ]);
+      // Uses waitForActionWithTimeout to avoid orphaned resolver event loss
+      const action = await interceptor.waitForActionWithTimeout(500);
 
       if (action === null) {
         // Timeout - check for control request and loop
@@ -124,91 +123,16 @@ export async function handleRecording(
       const decision = await promptAfterAction(action);
 
       if (decision.action === 'keep') {
-        ctx.stepCounter++;
-        const stepId = generateStepId(ctx.stepCounter, decision.description);
-
-        const step: StepPlan = {
-          stepId,
-          description: decision.description,
-          instruction: decision.description,
-          targetElementSelector: action.selector,
-        };
-
-        // Handle type action - store value in instruction
-        if (action.type === 'type' && action.value) {
-          step.instruction = `${decision.description}. Enter value: "${action.value}"`;
-        }
-
-        // Generate step prompt if requested
-        if (decision.generatePrompt) {
-          try {
-            const promptContent = await generateStepPrompt(
-              ctx.llmClient,
-              decision.description,
-              action,
-            );
-            const promptPath = `./prompts/${stepId}.md`;
-            const fullPromptPath = path.join(ctx.presetDir, promptPath);
-            fs.writeFileSync(fullPromptPath, promptContent);
-            step.promptRef = promptPath;
-            console.log(`   📝 Generated prompt: ${promptPath}`);
-          } catch (error) {
-            console.warn(`   ⚠️ Failed to generate prompt: ${error}`);
-          }
-        }
-
-        // Add step to session plan
-        addStepToSection(ctx, state.section, step, ctx.activeLoopId);
-
-        // Auto-save
-        saveCheckpoint(ctx);
-        saveSessionPlan(ctx);
-
-        console.log(`   ✓ Step saved: ${stepId}`);
+        await saveKeptAction(ctx, state.section, action, decision.description, decision.generatePrompt);
       } else if (decision.action === 'edit') {
         // Edit selector - put action back with new selector
         action.selector = decision.newSelector;
-        // Re-prompt for this action
+        // Re-prompt for this action (one retry only)
         const retryDecision = await promptAfterAction(action);
         if (retryDecision.action === 'keep') {
-          ctx.stepCounter++;
-          const stepId = generateStepId(ctx.stepCounter, retryDecision.description);
-
-          const step: StepPlan = {
-            stepId,
-            description: retryDecision.description,
-            instruction: retryDecision.description,
-            targetElementSelector: action.selector,
-          };
-
-          // Handle type action - store value in instruction
-          if (action.type === 'type' && action.value) {
-            step.instruction = `${retryDecision.description}. Enter value: "${action.value}"`;
-          }
-
-          // Generate step prompt if requested
-          if (retryDecision.generatePrompt) {
-            try {
-              const promptContent = await generateStepPrompt(
-                ctx.llmClient,
-                retryDecision.description,
-                action,
-              );
-              const promptPath = `./prompts/${stepId}.md`;
-              const fullPromptPath = path.join(ctx.presetDir, promptPath);
-              fs.writeFileSync(fullPromptPath, promptContent);
-              step.promptRef = promptPath;
-              console.log(`   📝 Generated prompt: ${promptPath}`);
-            } catch (error) {
-              console.warn(`   ⚠️ Failed to generate prompt: ${error}`);
-            }
-          }
-
-          addStepToSection(ctx, state.section, step, ctx.activeLoopId);
-          saveCheckpoint(ctx);
-          saveSessionPlan(ctx);
-          console.log(`   ✓ Step saved: ${stepId}`);
+          await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt);
         }
+        // If retry is 'discard' or 'edit', silently drop it
       }
       // 'discard' - do nothing, continue to next action
     }
@@ -224,6 +148,60 @@ export async function handleRecording(
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
+
+/**
+ * Save a kept action to the session plan.
+ * Handles step creation, prompt generation, and checkpointing.
+ */
+async function saveKeptAction(
+  ctx: RecorderContext,
+  section: RecordingSection,
+  action: RecordedAction,
+  description: string,
+  generatePrompt: boolean,
+): Promise<void> {
+  ctx.stepCounter++;
+  const stepId = generateStepId(ctx.stepCounter, description);
+
+  const step: StepPlan = {
+    stepId,
+    description,
+    instruction: description,
+    targetElementSelector: action.selector,
+  };
+
+  // Handle type action - store value in instruction
+  if (action.type === 'type' && action.value) {
+    step.instruction = `${description}. Enter value: "${action.value}"`;
+  }
+
+  // Generate step prompt if requested
+  if (generatePrompt) {
+    try {
+      const promptContent = await generateStepPrompt(
+        ctx.llmClient,
+        description,
+        action,
+      );
+      const promptPath = `./prompts/${stepId}.md`;
+      const fullPromptPath = path.join(ctx.presetDir, promptPath);
+      fs.writeFileSync(fullPromptPath, promptContent);
+      step.promptRef = promptPath;
+      console.log(`   📝 Generated prompt: ${promptPath}`);
+    } catch (error) {
+      console.warn(`   ⚠️ Failed to generate prompt: ${error}`);
+    }
+  }
+
+  // Add step to session plan
+  addStepToSection(ctx, section, step, ctx.activeLoopId);
+
+  // Auto-save
+  saveCheckpoint(ctx);
+  saveSessionPlan(ctx);
+
+  console.log(`   ✓ Step saved: ${stepId}`);
+}
 
 function printSectionHeader(section: RecordingSection, loopId: string | null): void {
   console.log('\n' + '─'.repeat(50));
