@@ -215,45 +215,76 @@ export async function observe(
  */
 async function detectCaptcha(page: Page): Promise<CaptchaInfo> {
   const detection = await page.evaluate(() => {
-    const html = document.documentElement.outerHTML.toLowerCase();
     const bodyText = document.body?.innerText?.toLowerCase() || '';
 
-    // Check for reCAPTCHA
-    const hasRecaptcha =
-      html.includes('recaptcha') ||
-      html.includes('grecaptcha') ||
-      !!document.querySelector('iframe[src*="recaptcha"]') ||
-      !!document.querySelector('.g-recaptcha');
+    // Check for reCAPTCHA - only detect if visible challenge is present
+    // Look for actual reCAPTCHA iframe or visible challenge widget
+    const hasRecaptchaIframe = !!document.querySelector('iframe[src*="recaptcha"]');
+    const hasRecaptchaWidget = !!document.querySelector('.g-recaptcha');
+    const hasRecaptchaChallenge = !!document.querySelector('[id*="recaptcha"]');
 
-    if (hasRecaptcha) {
+    // Also check if the reCAPTCHA challenge is actually visible
+    let hasVisibleRecaptcha = false;
+    if (hasRecaptchaIframe || hasRecaptchaWidget || hasRecaptchaChallenge) {
+      const element = document.querySelector('iframe[src*="recaptcha"], .g-recaptcha, [id*="recaptcha"]');
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        hasVisibleRecaptcha = rect.width > 0 && rect.height > 0 &&
+                             style.display !== 'none' &&
+                             style.visibility !== 'hidden' &&
+                             style.opacity !== '0';
+      }
+    }
+
+    if (hasVisibleRecaptcha) {
       return { detected: true, type: 'recaptcha' as const };
     }
 
-    // Check for hCaptcha
-    const hasHcaptcha =
-      html.includes('hcaptcha') ||
-      !!document.querySelector('iframe[src*="hcaptcha"]') ||
-      !!document.querySelector('.h-captcha');
+    // Check for hCaptcha - only detect if visible challenge is present
+    const hasHcaptchaIframe = !!document.querySelector('iframe[src*="hcaptcha"]');
+    const hasHcaptchaWidget = !!document.querySelector('.h-captcha');
 
-    if (hasHcaptcha) {
+    let hasVisibleHcaptcha = false;
+    if (hasHcaptchaIframe || hasHcaptchaWidget) {
+      const element = document.querySelector('iframe[src*="hcaptcha"], .h-captcha');
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        hasVisibleHcaptcha = rect.width > 0 && rect.height > 0 &&
+                            style.display !== 'none' &&
+                            style.visibility !== 'hidden' &&
+                            style.opacity !== '0';
+      }
+    }
+
+    if (hasVisibleHcaptcha) {
       return { detected: true, type: 'hcaptcha' as const };
     }
 
-    // Check for Cloudflare challenge
-    const hasCloudflare =
-      html.includes('cloudflare') ||
-      html.includes('cf-browser-verification') ||
-      html.includes('cf_chl_opt') ||
-      bodyText.includes('checking your browser') ||
-      bodyText.includes('ddos protection by cloudflare') ||
-      !!document.querySelector('#cf-wrapper') ||
-      !!document.querySelector('.cf-browser-verification');
+    // Check for Cloudflare challenge - only detect if visible
+    const hasCloudflareElement = !!document.querySelector('#cf-wrapper, .cf-browser-verification');
+    const hasCloudflareText = bodyText.includes('checking your browser') ||
+                              bodyText.includes('ddos protection by cloudflare');
 
-    if (hasCloudflare) {
+    let hasVisibleCloudflare = false;
+    if (hasCloudflareElement) {
+      const element = document.querySelector('#cf-wrapper, .cf-browser-verification');
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        hasVisibleCloudflare = rect.width > 0 && rect.height > 0 &&
+                              style.display !== 'none' &&
+                              style.visibility !== 'hidden' &&
+                              style.opacity !== '0';
+      }
+    }
+
+    if (hasVisibleCloudflare || hasCloudflareText) {
       return { detected: true, type: 'cloudflare' as const };
     }
 
-    // Check for generic captcha patterns
+    // Check for generic captcha patterns - only in visible body text
     const genericPatterns = [
       'verify you are human',
       "verify you're human",
@@ -268,7 +299,7 @@ async function detectCaptcha(page: Page): Promise<CaptchaInfo> {
     ];
 
     const hasGenericCaptcha = genericPatterns.some(
-      (pattern) => bodyText.includes(pattern) || html.includes(pattern),
+      (pattern) => bodyText.includes(pattern),
     );
 
     if (hasGenericCaptcha) {
