@@ -197,12 +197,48 @@ export async function promptAfterAction(
   }
 
   if (normalized === 'e' || normalized === 'edit') {
-    const newSelector = await askQuestion(`  New selector: `);
-    if (!newSelector.trim()) {
-      console.log(`${colors.red}  Invalid selector, keeping original${colors.reset}`);
-      // Fall through to keep
+    const editChoice = await askQuestion(
+      `  ${colors.bright}[S]${colors.reset}elector (CSS) / ${colors.bright}[D]${colors.reset}escription (semantic) [S]: `
+    );
+
+    if (editChoice === '__SIGINT__') {
+      console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
+      return { action: 'discard' };
+    }
+
+    const editType = editChoice.trim().toLowerCase() || 's';
+
+    if (editType === 'd' || editType === 'description') {
+      // Semantic description - LLM will find element at runtime
+      const description = await askQuestion(`  Describe element (e.g., "search bar", "login button"): `);
+      if (description === '__SIGINT__') {
+        console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
+        return { action: 'discard' };
+      }
+
+      if (!description.trim()) {
+        console.log(`${colors.red}  Invalid description, keeping original${colors.reset}`);
+        // Fall through to keep
+      } else {
+        // Use special format to indicate this is a semantic description
+        const semanticSelector = `{desc:"${description.trim()}"}`;
+        console.log(`${colors.cyan}  ✓ Using semantic description${colors.reset}`);
+        return { action: 'edit', newSelector: semanticSelector };
+      }
     } else {
-      return { action: 'edit', newSelector: newSelector.trim() };
+      // CSS selector
+      const newSelector = await askQuestion(`  New CSS selector: `);
+      if (newSelector === '__SIGINT__') {
+        console.log(`${colors.yellow}⏭ Interrupted - discarding action${colors.reset}`);
+        return { action: 'discard' };
+      }
+
+      if (!newSelector.trim()) {
+        console.log(`${colors.red}  Invalid selector, keeping original${colors.reset}`);
+        // Fall through to keep
+      } else {
+        return { action: 'edit', newSelector: newSelector.trim() };
+      }
     }
   }
 
