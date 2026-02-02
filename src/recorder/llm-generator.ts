@@ -212,37 +212,123 @@ function getDefaultVerificationScript(description: string): string {
 // -----------------------------------------------------------------------------
 
 /**
+ * Format page elements for loop condition analysis.
+ * Focuses on elements that might indicate loop continuation/termination.
+ */
+function formatElementsForLoopAnalysis(elements: ElementInfo[]): string {
+  if (!elements || elements.length === 0) {
+    return 'No elements observed on page.';
+  }
+
+  // Filter elements relevant to loop conditions
+  const relevantElements = elements
+    .filter(el => {
+      const selector = el.selector.toLowerCase();
+      const text = el.text.toLowerCase();
+      const tag = el.tag.toLowerCase();
+
+      // Include pagination/navigation elements
+      const paginationKeywords = ['next', 'prev', 'page', 'pagination', 'more', 'continue', 'load'];
+      const hasPaginationHint = paginationKeywords.some(kw =>
+        selector.includes(kw) || text.includes(kw) ||
+        Object.values(el.attributes).some(v => v.toLowerCase().includes(kw))
+      );
+
+      // Include list items and containers
+      const listKeywords = ['item', 'list', 'row', 'card', 'result', 'entry'];
+      const isListElement = listKeywords.some(kw => selector.includes(kw));
+
+      // Include completion/end indicators
+      const endKeywords = ['empty', 'done', 'complete', 'finish', 'end', 'no more', 'success'];
+      const hasEndHint = endKeywords.some(kw =>
+        selector.includes(kw) || text.includes(kw)
+      );
+
+      // Include interactive elements (buttons, links)
+      const isInteractive = ['button', 'a', 'input'].includes(tag);
+
+      return hasPaginationHint || isListElement || hasEndHint || isInteractive;
+    })
+    .slice(0, 30);
+
+  if (relevantElements.length === 0) {
+    return elements.slice(0, 20).map(el =>
+      `- [${el.tag}] selector="${el.selector}" text="${el.text.slice(0, 50)}"`
+    ).join('\n');
+  }
+
+  return relevantElements.map(el => {
+    const attrs = Object.entries(el.attributes)
+      .filter(([k]) => ['class', 'id', 'aria-label', 'role', 'data-testid'].includes(k))
+      .map(([k, v]) => `${k}="${v}"`)
+      .join(' ');
+    return `- [${el.tag}] selector="${el.selector}" text="${el.text.slice(0, 50)}" ${attrs}`.trim();
+  }).join('\n');
+}
+
+/**
  * Generate a loop condition script using LLM.
+ * Analyzes page elements to create meaningful continuation conditions.
+ *
+ * @param client - OpenAI client
+ * @param description - Human description of the loop condition
+ * @param pageElements - Optional array of page elements for LLM analysis
  */
 export async function generateLoopCondition(
   client: OpenAI,
   description: string,
+  pageElements?: ElementInfo[],
 ): Promise<string> {
+  const elementsContext = pageElements
+    ? formatElementsForLoopAnalysis(pageElements)
+    : 'No page elements provided.';
+
   const prompt = `Generate a JavaScript condition for a web automation loop.
 The script runs in browser context and must return a boolean.
-Return true to continue the loop, false to exit.
+Return true to CONTINUE the loop, false to EXIT.
 
-Condition: ${description}
+Loop condition: ${description}
 
-Requirements:
-- Must be a single arrow function: () => { ... return true/false; }
-- Use document.querySelector or document.querySelectorAll
-- Return true if loop should continue
-- Return false if loop should stop
+Page elements for reference:
+${elementsContext}
 
-Examples:
-- While items exist: () => document.querySelectorAll('.item').length > 0
-- Until no more pages: () => document.querySelector('.next-page') !== null
-- While not at end: () => !document.body.innerText.includes('No more results')
+CRITICAL RULES:
+1. Output ONLY a single arrow function: () => { ... }
+2. Return true if the loop should CONTINUE (more work to do)
+3. Return false if the loop should EXIT (done/finished)
+4. Use document.querySelector or document.querySelectorAll
+5. Keep it SHORT - under 5 lines of logic
 
-Only output the script, no explanations or markdown.`;
+PATTERNS (copy exactly, just replace placeholders):
+
+While element exists (continue while found):
+() => document.querySelector('SELECTOR') !== null
+
+Until element appears (exit when found):
+() => document.querySelector('SELECTOR') === null
+
+While items remain:
+() => document.querySelectorAll('SELECTOR').length > 0
+
+Until text appears (exit when text found):
+() => !document.body.innerText.includes('TEXT')
+
+While text exists (continue while text present):
+() => document.body.innerText.includes('TEXT')
+
+IMPORTANT:
+- Use .toLowerCase().includes() for case-insensitive text matching
+- Prefer generic selectors over brittle specific ones
+- Do NOT use :has-text (Playwright-only, not native JS)
+
+Output ONLY the arrow function. No markdown, no explanation.`;
 
   try {
     const response = await client.chat.completions.create({
       model: getDefaultModel(),
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 200,
+      temperature: 0.2,
+      max_tokens: 250,
     });
 
     const rawScript = response.choices[0]?.message?.content?.trim() || '';
@@ -330,52 +416,73 @@ export async function generateWaitForReadyScript(
     ? formatElementsForWaitAnalysis(pageElements)
     : 'No page elements provided.';
 
-  const prompt = `Generate a JavaScript async script for web automation that waits until the page is ready.
-The script runs in browser context and should resolve when the page/element is ready.
+  const prompt = `Generate a simple JavaScript Promise that waits for a condition.
 
 Wait condition: ${description}
 
-Current page elements (analyze these to find real selectors):
+Page elements for reference:
 ${elementsContext}
 
-Requirements:
-- Must be an async expression that resolves when ready (using Promise or MutationObserver)
-- Use REAL selectors from the page elements above - do NOT invent generic selectors like '.spinner'
-- If waiting for loading to finish, look for actual loading indicators in the elements list
-- If waiting for content to appear, use a selector that exists in the elements list
-- Should complete/resolve when the condition is met
-- No return value needed - completion signals readiness
+CRITICAL RULES:
+1. Output ONLY a single "new Promise(resolve => { ... })" expression
+2. Do NOT create named functions, async IIFEs, or multiple Promises
+3. Do NOT add conditions beyond what was explicitly requested
+4. Keep it SHORT - under 5 lines of logic inside the Promise
+5. Use the EXACT patterns below - just replace SELECTOR or TEXT
 
-Patterns:
-- Wait for element to appear: new Promise(resolve => { if (document.querySelector('SELECTOR')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('SELECTOR')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })
-- Wait for element to disappear: new Promise(resolve => { const check = () => !document.querySelector('SELECTOR') ? resolve() : setTimeout(check, 100); check(); })
-- Wait for text content (native JS): new Promise(resolve => { const check = () => { const el = Array.from(document.querySelectorAll('a,button')).find(e => e.textContent.includes('TEXT')); el ? resolve() : setTimeout(check, 100); }; check(); })
-- Wait by href pattern: new Promise(resolve => { const check = () => document.querySelector('a[href*="/pattern/"]') ? resolve() : setTimeout(check, 100); check(); })
+PATTERNS (copy exactly, just replace placeholders):
 
-Important:
-- Prefer GENERIC selectors over specific ones (e.g., use 'a[href*="/assessment/"]' instead of '[aria-label="Take test Specific Course Name"]')
-- Use href patterns (a[href*="..."]) when the URL structure is predictable
-- Use text matching with Array.find() for button/link text (not :has-text which is Playwright-only)
-- Avoid selectors with specific content names that would change between runs
+For waiting for element by selector:
+new Promise(resolve => { const check = () => document.querySelector('SELECTOR') ? resolve() : setTimeout(check, 100); check(); })
 
-Only output the script, no explanations or markdown.`;
+For waiting for element to disappear:
+new Promise(resolve => { const check = () => !document.querySelector('SELECTOR') ? resolve() : setTimeout(check, 100); check(); })
+
+For waiting for text content in buttons/links:
+new Promise(resolve => { const check = () => { const el = Array.from(document.querySelectorAll('button, a')).find(e => e.textContent?.toLowerCase().includes('TEXT')); el ? resolve() : setTimeout(check, 100); }; check(); })
+
+For waiting by href pattern:
+new Promise(resolve => { const check = () => document.querySelector('a[href*="/pattern/"]') ? resolve() : setTimeout(check, 100); check(); })
+
+IMPORTANT:
+- Use .toLowerCase().includes() for case-insensitive text matching
+- Prefer generic selectors (a[href*="/path/"]) over specific aria-labels
+- Do NOT use :has-text (Playwright-only, not native JS)
+- Do NOT add timeouts, observers, or extra complexity unless absolutely necessary
+
+Output ONLY the Promise expression. No markdown, no explanation, no wrapping.`;
 
   try {
     const response = await client.chat.completions.create({
       model: getDefaultModel(),
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 400,
+      temperature: 0.2,
+      max_tokens: 250,
     });
 
     const rawScript = response.choices[0]?.message?.content?.trim() || '';
     const script = cleanLLMScript(rawScript);
 
-    // Basic validation - should start with 'new Promise' or contain 'Promise'
-    if (script.includes('Promise') || script.includes('await')) {
+    // Strict validation - must be a simple inline Promise
+    const isValidWaitScript = (s: string): boolean => {
+      // Must start with 'new Promise'
+      if (!s.startsWith('new Promise')) return false;
+      // Reject async IIFEs and named functions (signs of over-complexity)
+      if (s.includes('async ()') || s.includes('async function') || s.includes('function ')) return false;
+      // Reject Promise.all (should be single condition)
+      if (s.includes('Promise.all')) return false;
+      // Reject multiple Promise constructions
+      if ((s.match(/new Promise/g) || []).length > 1) return false;
+      // Should be reasonably short (under 500 chars for simple wait)
+      if (s.length > 500) return false;
+      return true;
+    };
+
+    if (isValidWaitScript(script)) {
       return script;
     }
 
+    console.warn('LLM generated overly complex wait script, using default');
     return getDefaultWaitForReadyScript(description, pageElements);
   } catch (error) {
     console.warn(`LLM call failed, using default script: ${error}`);
@@ -385,10 +492,45 @@ Only output the script, no explanations or markdown.`;
 
 /**
  * Default waitForReady script when LLM fails.
- * Tries to find loading indicators from page elements.
+ * Parses description to generate appropriate wait condition.
  */
 function getDefaultWaitForReadyScript(description: string, pageElements?: ElementInfo[]): string {
-  // Try to find actual loading indicators from page elements
+  const lowerDesc = description.toLowerCase();
+
+  // Pattern 1: Text-based matching (e.g., "button with text take test", "link containing submit")
+  // Match patterns like: "button with text X", "button containing X", "text X appears"
+  const textPatterns = [
+    // "button with text take test", "at least one button with text X"
+    /(?:button|link|element).*(?:with text|containing|says|labeled)\s+["']?(.+?)["']?$/i,
+    // "text X appears", "content X shows"
+    /(?:text|content)\s+["']?([^"']+)["']?\s+(?:appears|shows|visible)/i,
+    // "'take test' button"
+    /["']([^"']+)["']\s+(?:button|link|text)/i,
+    // "button text X", "link text X"
+    /(?:button|link)\s+text\s+["']?(.+?)["']?$/i,
+  ];
+
+  for (const pattern of textPatterns) {
+    const match = description.match(pattern);
+    if (match) {
+      const searchText = match[1].trim().toLowerCase();
+      return `new Promise(resolve => { const check = () => { const el = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(e => e.textContent?.toLowerCase().includes('${searchText}')); el ? resolve() : setTimeout(check, 100); }; check(); })`;
+    }
+  }
+
+  // Pattern 2: Element disappears (e.g., "spinner disappears", "loading gone")
+  if (lowerDesc.includes('disappear') || lowerDesc.includes('gone') || lowerDesc.includes('removed')) {
+    const loadingKeywords = ['spinner', 'loading', 'skeleton', 'progress', 'loader'];
+    const keyword = loadingKeywords.find(kw => lowerDesc.includes(kw));
+    if (keyword) {
+      // Try to find actual element from page
+      const loadingElement = pageElements?.find(el => el.selector.toLowerCase().includes(keyword));
+      const selector = loadingElement?.selector || `[class*="${keyword}"]`;
+      return `new Promise(resolve => { const check = () => !document.querySelector('${selector}') ? resolve() : setTimeout(check, 100); check(); })`;
+    }
+  }
+
+  // Pattern 3: Try to find loading indicators from page elements
   if (pageElements && pageElements.length > 0) {
     const loadingKeywords = ['spinner', 'loading', 'skeleton', 'progress', 'loader'];
     const loadingElement = pageElements.find(el => {
@@ -397,28 +539,28 @@ function getDefaultWaitForReadyScript(description: string, pageElements?: Elemen
     });
 
     if (loadingElement) {
-      // Wait for loading indicator to disappear
       return `new Promise(resolve => { const check = () => !document.querySelector('${loadingElement.selector}') ? resolve() : setTimeout(check, 100); check(); })`;
     }
+  }
 
-    // If no loading indicator, wait for first interactive element to appear
+  // Pattern 4: Explicit selector in description
+  const selectorMatch = lowerDesc.match(/['"]([.#][^'"]+)['"]/);
+  if (selectorMatch) {
+    const selector = selectorMatch[1];
+    return `new Promise(resolve => { const check = () => document.querySelector('${selector}') ? resolve() : setTimeout(check, 100); check(); })`;
+  }
+
+  // Pattern 5: Wait for interactive element from page elements
+  if (pageElements && pageElements.length > 0) {
     const interactiveElement = pageElements.find(el =>
       ['button', 'input', 'a'].includes(el.tag.toLowerCase())
     );
     if (interactiveElement) {
-      return `new Promise(resolve => { if (document.querySelector('${interactiveElement.selector}')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('${interactiveElement.selector}')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })`;
+      return `new Promise(resolve => { const check = () => document.querySelector('${interactiveElement.selector}') ? resolve() : setTimeout(check, 100); check(); })`;
     }
   }
 
-  // Fallback: try to extract a selector hint from description
-  const lowerDesc = description.toLowerCase();
-  const selectorMatch = lowerDesc.match(/['"]([.#][^'"]+)['"]/);
-  if (selectorMatch) {
-    const selector = selectorMatch[1];
-    return `new Promise(resolve => { if (document.querySelector('${selector}')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('${selector}')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })`;
-  }
-
-  // Generic wait for page to be interactive
+  // Fallback: Generic wait for page load
   return `new Promise(resolve => { if (document.readyState === 'complete') return resolve(); window.addEventListener('load', resolve); })`;
 }
 

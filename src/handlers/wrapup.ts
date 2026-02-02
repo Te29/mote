@@ -12,12 +12,54 @@ import type {
   AgentStateWrapup,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
-import type { StepTracker, StepResult } from '../types/index.js';
+import type { StepTracker, StepResult, StepPlan, Action } from '../types/index.js';
+import type { Page } from 'playwright';
 import { createTimestamp } from '../types/session.js';
 import { executeAction } from '../act/act.js';
 import { saveCheckpoint, type SessionCheckpoint, type CheckpointRuntimeState } from '../utils/checkpoint.js';
 import { executeVerification } from '../utils/verification.js';
+import { observe } from '../observe.js';
+import { think } from '../reason.js';
+import { loadStepPrompt, renderPromptTemplate } from '../utils/preset.js';
 import * as path from 'path';
+
+/**
+ * Execute waitForReady hook for a step if defined.
+ * Waits for the page to be ready according to the step's waitScript.
+ *
+ * @param page - Playwright page object
+ * @param stepPlan - The step plan that may have waitForReady config
+ * @returns true if successful or no waitForReady defined, false if failed with onTimeout='fail'
+ */
+async function executeWaitForReady(page: Page, stepPlan: StepPlan): Promise<{ success: boolean; error?: string }> {
+  if (!stepPlan.waitForReady) {
+    return { success: true };
+  }
+
+  const { waitScript, description, timeout = 10000, onTimeout = 'continue' } = stepPlan.waitForReady;
+
+  console.log(`  ⏳ Waiting for page ready: ${description || 'custom script'}`);
+
+  try {
+    await Promise.race([
+      page.evaluate(waitScript),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('waitForReady timeout')), timeout)
+      )
+    ]);
+    console.log(`  ✓ Page ready`);
+    return { success: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`  ⚠️ waitForReady failed: ${msg}`);
+
+    if (onTimeout === 'fail') {
+      return { success: false, error: `waitForReady failed for step "${stepPlan.stepId}": ${msg}` };
+    }
+    // onTimeout: 'continue' - proceed anyway
+    return { success: true };
+  }
+}
 
 /**
  * Handle the WRAPUP state.
@@ -104,6 +146,10 @@ export async function handleWrapup(
 
   console.log(`📋 Executing wrapup step ${executedWrapupSteps + 1}/${totalWrapupSteps}: ${stepPlan.description}`);
 
+  // Execute waitForReady if defined (wait for page to be ready before action)
+  // On failure, just warn and continue - don't terminate
+  await executeWaitForReady(ctx.runtime.activePage, stepPlan);
+
   // Navigate to step URL if specified
   if (stepPlan.url) {
     console.log(`  🌐 Navigating to: ${stepPlan.url}`);
@@ -114,15 +160,86 @@ export async function handleWrapup(
     }
   }
 
-  // Execute the step action if defined
+  // Determine action to execute
   let success = true;
   let error: string | undefined;
+  let actionToExecute: Action | undefined = stepPlan.action;
 
-  if (stepPlan.action) {
-    console.log(`  ⚡ Executing action: ${stepPlan.action.type}`);
+  // LLM-driven step: Use reasoning to determine the action
+  if (stepPlan.llmRequired && !stepPlan.action) {
+    console.log(`  🧠 LLM-driven step: ${stepPlan.description}`);
+
+    // Observe page to get current state
+    const pageState = await observe(ctx.runtime.activePage);
+
+    // Load step-specific prompt if provided
+    let stepPrompt: string | undefined;
+    if (stepPlan.promptRef && ctx.presetDir) {
+      const rawPrompt = loadStepPrompt(ctx.presetDir, stepPlan.promptRef);
+      if (rawPrompt) {
+        stepPrompt = renderPromptTemplate(rawPrompt, {
+          instruction: stepPlan.instruction || stepPlan.description,
+          step: stepPlan,
+          context: ctx.goal?.context || {},
+          goal: ctx.goal,
+        });
+        console.log(`   📝 Loaded step prompt from: ${stepPlan.promptRef}`);
+      }
+    }
+
+    // Build instruction for LLM
+    const stepInstruction = stepPlan.instruction || stepPlan.description;
+    const hints: string[] = [];
+    if (stepPlan.targetElementSelector) {
+      hints.push(`Target element: ${stepPlan.targetElementSelector}`);
+    }
+
+    const fullInstruction = hints.length > 0
+      ? `${stepInstruction}\n\nHints:\n${hints.join('\n')}`
+      : stepInstruction;
+
+    // Call reasoning module
+    const llmResult = await think(
+      pageState,
+      ctx.goal,
+      ctx.preset,
+      ctx.tracker,
+      ctx.history,
+      ctx.services.llmClient,
+      ctx.interventionMetrics,
+      {
+        tokenMarkdown: ctx.tokenMarkdown,
+        tokenElements: ctx.tokenElements,
+        tokenMaxElements: ctx.tokenMaxElements,
+        tokenHistory: ctx.tokenHistory,
+      },
+      {
+        point: 'ACTION',
+        instruction: fullInstruction,
+      },
+      stepPrompt || ctx.customSystemPrompt,
+    );
+
+    if (llmResult.type === 'ACTION') {
+      console.log(`   ✓ LLM determined action: ${llmResult.action.type} - ${llmResult.action.reason}`);
+      actionToExecute = llmResult.action;
+    } else if (llmResult.type === 'GOAL_SUCCESS') {
+      console.log(`   ✓ LLM reports goal success: ${llmResult.finalAnswer}`);
+    } else if (llmResult.type === 'FAIL') {
+      console.log(`   ✗ LLM failed: ${llmResult.error}`);
+      success = false;
+      error = llmResult.error;
+    } else {
+      console.log(`   ⚠️ LLM returned ${llmResult.type}, continuing...`);
+    }
+  }
+
+  // Execute action if we have one
+  if (success && actionToExecute) {
+    console.log(`  ⚡ Executing action: ${actionToExecute.type}`);
     const result = await executeAction(
       ctx.runtime.activePage,
-      stepPlan.action,
+      actionToExecute,
       [], // No elements needed for predefined actions
     );
     success = result.success;
@@ -138,7 +255,7 @@ export async function handleWrapup(
     globalIndex,
     stepId: stepPlan.stepId,
     isCompleted: success,
-    action: stepPlan.action,
+    action: actionToExecute,
     stepDescription: stepPlan.description,
     pageContext: {
       url: ctx.runtime.activePage.url(),
@@ -151,7 +268,7 @@ export async function handleWrapup(
   // Record in history
   const stepResult: StepResult = {
     step: ctx.history.length + 1,
-    action: stepPlan.action,
+    action: actionToExecute,
     success,
     error,
     timestamp: createTimestamp(),

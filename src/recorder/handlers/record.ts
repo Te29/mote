@@ -19,7 +19,7 @@ import {
   promptVerification,
 } from '../prompts.js';
 import { saveCheckpoint, saveSessionPlan } from '../checkpoint.js';
-import { generateStepPrompt, generateVerificationScript, generateWaitForReadyScript } from '../llm-generator.js';
+import { generateStepPrompt, generateVerificationScript, generateWaitForReadyScript, generateLoopCondition } from '../llm-generator.js';
 import { observeAndSavePage } from '../page-observer.js';
 import { observe } from '../../observe.js';
 import type { WaitForReadyConfig } from '../../types/index.js';
@@ -201,7 +201,7 @@ async function handlePhaseControl(
       }
       const loopConfig = await promptLoopConfig();
       const loopId = `loop-${Date.now()}`;
-      addLoopToSection(ctx, loopId, loopConfig);
+      await addLoopToSection(ctx, loopId, loopConfig);
       ctx.activeLoopId = loopId;
       console.log(`\n🔄 Started loop: ${loopId}`);
       printSectionHeader(state.section, ctx.activeLoopId);
@@ -321,11 +321,11 @@ function addStepToSection(
   }
 }
 
-function addLoopToSection(
+async function addLoopToSection(
   ctx: RecorderContext,
   loopId: string,
   config: LoopConfig,
-): void {
+): Promise<void> {
   const loop: LoopPlan = {
     loopId,
     steps: [],
@@ -334,7 +334,32 @@ function addLoopToSection(
   if (config.iterations) {
     loop.iterations = config.iterations;
   }
-  // Note: loopCondition would need more complex handling for dynamic conditions
+
+  // Generate loop condition script if description provided
+  if (config.conditionDescription) {
+    try {
+      // Observe current page to get elements for LLM analysis
+      console.log(`   👁️ Observing page for loop condition generation...`);
+      const pageState = await observe(ctx.page);
+
+      const conditionScript = await generateLoopCondition(
+        ctx.llmClient,
+        config.conditionDescription,
+        pageState.elements,
+      );
+
+      loop.loopCondition = {
+        verification: {
+          script: conditionScript,
+          description: config.conditionDescription,
+        },
+        maxIterations: 100, // Safety limit
+      };
+      console.log(`   🔄 Generated loop condition: "${config.conditionDescription}"`);
+    } catch (error) {
+      console.warn(`   ⚠️ Failed to generate loop condition: ${error}`);
+    }
+  }
 
   const unit: PlanUnit = { type: 'loop', loop };
   ctx.sessionPlan.cyclePlan.units.push(unit);
