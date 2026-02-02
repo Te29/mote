@@ -161,6 +161,7 @@ export async function bootstrap(
 
     console.log('✓ Checkpoint restored. Continuing bootstrap...');
   } else if (config.sessionPlan) {
+    console.log('[DEBUG BOOTSTRAP] config.sessionPlan exists, validating...');
     // SessionPlan provided from preset - validate and convert to tracker
     const validation = reasonProxy.validateSessionPlan(config.sessionPlan);
 
@@ -175,10 +176,13 @@ export async function bootstrap(
         throw new Error('Invalid SessionPlan and no goal provided');
       }
     } else {
+      console.log('[DEBUG BOOTSTRAP] SessionPlan valid, initializing tracker...');
       // Convert SessionPlan → SessionTracker
       tracker = reasonProxy.initializeTrackerFromPlan(config.sessionPlan);
+      console.log('[DEBUG BOOTSTRAP] Tracker initialized, has sessionPlan:', !!tracker.sessionPlan);
     }
   } else if (config.goal) {
+    console.log('[DEBUG BOOTSTRAP] No sessionPlan, using goal-based planning...');
     // No SessionPlan - generate tracker from goal
     tracker = await reasonProxy.generatePlan(config.goal, llmClient);
   } else {

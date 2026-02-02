@@ -1,0 +1,336 @@
+{
+  "timestamp": "2026-02-02T14:09:08.124Z",
+  "url": "https://acs-preview.percipio.com/courses/415038f6-1828-4f67-974f-c78df0daf2f2/assessment/c59ce380-6798-455c-ae8e-793d8ee783c9/challenge/63c899c1-c355-4ce3-a5e8-193199ae9953/questions",
+  "title": "Percipio Skill Benchmark New Project Manager Essentials",
+  "markdown": "Copyright 2026 Skillsoft Ireland Limited. All rights reserved.PMBOK, PMI, PMP, CAPM, PMI-ACP, PgMP, PMI-RMP and PMI-SP are trademarks of the Project Management Institute, Inc.\n\n[Image: logo]",
+  "elements": [
+    {
+      "index": 1,
+      "tag": "button",
+      "text": "Jump to main content",
+      "selector": "[id=\"root\"] button:has-text(\"Jump to main content\")",
+      "inputType": "submit",
+      "attributes": {
+        "class": "SkipLink---skiplink---hv04c focus-ring",
+        "role": "link"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 2,
+      "tag": "button",
+      "text": "Site Navigation",
+      "selector": "[aria-label=\"Site Navigation\"]",
+      "alternativeSelectors": [
+        "[id=\"leftmenuid\"] button:has-text(\"Site Navigation\")"
+      ],
+      "inputType": "button",
+      "attributes": {
+        "class": "Button---root---TwJp3 Button---flat---Miznv Button---medium---jY9sc Button---center---KFO8Q NavBa...",
+        "type": "button",
+        "aria-label": "Site Navigation"
+      }
+    },
+    {
+      "index": 3,
+      "tag": "button",
+      "text": "Experience Points: 400",
+      "selector": "[aria-label=\"Experience Points: 400\"]",
+      "alternativeSelectors": [
+        "[id=\"xpButton\"] button:has-text(\"Experience Points: 400\")"
+      ],
+      "inputType": "button",
+      "attributes": {
+        "class": "Button---root---TwJp3 Button---flat---Miznv Button---medium---jY9sc Button---center---KFO8Q Butto...",
+        "type": "button",
+        "aria-label": "Experience Points: 400",
+        "role": "button"
+      }
+    },
+    {
+      "index": 4,
+      "tag": "a",
+      "text": "My Achievements",
+      "selector": "[aria-label=\"My Achievements\"]",
+      "alternativeSelectors": [
+        "[id=\"achievements\"] a:has-text(\"My Achievements\")",
+        "a[href=\"/profile/achievements\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "/profile/achievements",
+        "class": "NavBar---tabItem---phpgz",
+        "aria-label": "My Achievements"
+      }
+    },
+    {
+      "index": 5,
+      "tag": "button",
+      "text": "SP\nMy Profile",
+      "selector": "[id=\"profile_null\"] button:has-text(\"SP\nMy Profile\")",
+      "inputType": "button",
+      "attributes": {
+        "class": "NavBar---tabItem---phpgz",
+        "type": "button",
+        "role": "button"
+      }
+    },
+    {
+      "index": 6,
+      "tag": "button",
+      "text": "Open search box",
+      "selector": "[id=\"search-icon-toggle\"]",
+      "alternativeSelectors": [
+        "[aria-label=\"Open search box\"]",
+        "[id=\"mobileSearch\"] button:has-text(\"Open search box\")"
+      ],
+      "inputType": "submit",
+      "attributes": {
+        "id": "search-icon-toggle",
+        "class": "Button---root---TwJp3 Button---secondary---H8yOM Button---medium---jY9sc Button---center---KFO8Q ...",
+        "type": "submit",
+        "aria-label": "Open search box"
+      }
+    },
+    {
+      "index": 7,
+      "tag": "a",
+      "text": "Back to track",
+      "selector": "[aria-label=\"Back to track\"]",
+      "alternativeSelectors": [
+        "[id=\"maincontentid\"] a:has-text(\"Back to track\")",
+        "a[href=\"/track/53809d02-5cff-4cc8-a8fa-617eaf946aaa\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "/track/53809d02-5cff-4cc8-a8fa-617eaf946aaa",
+        "class": "Link---root---ut7yW Link---focus---LabWS",
+        "aria-label": "Back to track"
+      }
+    },
+    {
+      "index": 8,
+      "tag": "a",
+      "text": "Next Item",
+      "selector": "[aria-label=\"Next in the track Course Defining a Project Scope and Team\"]",
+      "alternativeSelectors": [
+        "[id=\"maincontentid\"] a:has-text(\"Next Item\")",
+        "a[href=\"/courses/2aaef802-376e-41c7-875e-2d598355bbbc\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "/courses/2aaef802-376e-41c7-875e-2d598355bbbc",
+        "class": "Link---root---ut7yW Link---focus---LabWS",
+        "aria-label": "Next in the track Course Defining a Project Scope and Team"
+      }
+    },
+    {
+      "index": 9,
+      "tag": "input",
+      "text": "Scheduling the start and end date of the project",
+      "selector": "[id=\"d7cc7759-2772-5a0e-a7cb-c2e2fee76fc2\"]",
+      "alternativeSelectors": [
+        "input[name=\"254ef219-f11f-40f4-ab0a-56753af84f0f\"]",
+        "[aria-label=\"Scheduling the start and end date of the project\"]",
+        "input[type=\"checkbox\"]"
+      ],
+      "inputType": "checkbox",
+      "attributes": {
+        "name": "254ef219-f11f-40f4-ab0a-56753af84f0f",
+        "id": "d7cc7759-2772-5a0e-a7cb-c2e2fee76fc2",
+        "class": "Checkbox---input---cuo0M Checkbox---labelledInputCheckbox---OkBCQ",
+        "type": "checkbox",
+        "aria-label": "Scheduling the start and end date of the project",
+        "checked": "false"
+      }
+    },
+    {
+      "index": 10,
+      "tag": "input",
+      "text": "Defining what a project should specifically inc...",
+      "selector": "[id=\"07444159-7229-5979-a2f2-855582f30dd6\"]",
+      "alternativeSelectors": [
+        "input[name=\"254ef219-f11f-40f4-ab0a-56753af84f0f\"]",
+        "[aria-label=\"Defining what a project should specifically include and what it shouldn’t include\"]",
+        "input[type=\"checkbox\"]"
+      ],
+      "inputType": "checkbox",
+      "attributes": {
+        "name": "254ef219-f11f-40f4-ab0a-56753af84f0f",
+        "id": "07444159-7229-5979-a2f2-855582f30dd6",
+        "class": "Checkbox---input---cuo0M Checkbox---labelledInputCheckbox---OkBCQ",
+        "type": "checkbox",
+        "aria-label": "Defining what a project should specifically include and what it shouldn’t include",
+        "checked": "false"
+      }
+    },
+    {
+      "index": 11,
+      "tag": "input",
+      "text": "Delegating the management of the project to a c...",
+      "selector": "[id=\"3d9c5a65-e930-5c49-b69d-d4208aa60f39\"]",
+      "alternativeSelectors": [
+        "input[name=\"254ef219-f11f-40f4-ab0a-56753af84f0f\"]",
+        "[aria-label=\"Delegating the management of the project to a colleague\"]",
+        "input[type=\"checkbox\"]"
+      ],
+      "inputType": "checkbox",
+      "attributes": {
+        "name": "254ef219-f11f-40f4-ab0a-56753af84f0f",
+        "id": "3d9c5a65-e930-5c49-b69d-d4208aa60f39",
+        "class": "Checkbox---input---cuo0M Checkbox---labelledInputCheckbox---OkBCQ",
+        "type": "checkbox",
+        "aria-label": "Delegating the management of the project to a colleague",
+        "checked": "false"
+      }
+    },
+    {
+      "index": 12,
+      "tag": "input",
+      "text": "Making a detailed plan of how money should be s...",
+      "selector": "[id=\"10e6e93b-3c7b-5e40-a0fb-e3ff9f69f220\"]",
+      "alternativeSelectors": [
+        "input[name=\"254ef219-f11f-40f4-ab0a-56753af84f0f\"]",
+        "[aria-label=\"Making a detailed plan of how money should be spent\"]",
+        "input[type=\"checkbox\"]"
+      ],
+      "inputType": "checkbox",
+      "attributes": {
+        "name": "254ef219-f11f-40f4-ab0a-56753af84f0f",
+        "id": "10e6e93b-3c7b-5e40-a0fb-e3ff9f69f220",
+        "class": "Checkbox---input---cuo0M Checkbox---labelledInputCheckbox---OkBCQ",
+        "type": "checkbox",
+        "aria-label": "Making a detailed plan of how money should be spent",
+        "checked": "false"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 13,
+      "tag": "input",
+      "text": "Overriding the project’s scope to accommodate s...",
+      "selector": "[id=\"265c7e73-3ee3-5569-82f9-8d9cd0d024e9\"]",
+      "alternativeSelectors": [
+        "input[name=\"254ef219-f11f-40f4-ab0a-56753af84f0f\"]",
+        "[aria-label=\"Overriding the project’s scope to accommodate stakeholder requests\"]",
+        "input[type=\"checkbox\"]"
+      ],
+      "inputType": "checkbox",
+      "attributes": {
+        "name": "254ef219-f11f-40f4-ab0a-56753af84f0f",
+        "id": "265c7e73-3ee3-5569-82f9-8d9cd0d024e9",
+        "class": "Checkbox---input---cuo0M Checkbox---labelledInputCheckbox---OkBCQ",
+        "type": "checkbox",
+        "aria-label": "Overriding the project’s scope to accommodate stakeholder requests",
+        "checked": "false"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 14,
+      "tag": "input",
+      "text": "Managing the fallout from a cost overrun",
+      "selector": "[id=\"ed3c8747-4503-5e54-885c-1fd0af8d99d1\"]",
+      "alternativeSelectors": [
+        "input[name=\"254ef219-f11f-40f4-ab0a-56753af84f0f\"]",
+        "[aria-label=\"Managing the fallout from a cost overrun\"]",
+        "input[type=\"checkbox\"]"
+      ],
+      "inputType": "checkbox",
+      "attributes": {
+        "name": "254ef219-f11f-40f4-ab0a-56753af84f0f",
+        "id": "ed3c8747-4503-5e54-885c-1fd0af8d99d1",
+        "class": "Checkbox---input---cuo0M Checkbox---labelledInputCheckbox---OkBCQ",
+        "type": "checkbox",
+        "aria-label": "Managing the fallout from a cost overrun",
+        "checked": "false"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 15,
+      "tag": "button",
+      "text": "Save and exit",
+      "selector": "[id=\"maincontentid\"] button:has-text(\"Save and exit\")",
+      "inputType": "button",
+      "attributes": {
+        "class": "Button---root---TwJp3 Button---secondary---H8yOM Button---small---HuPO_ Button---center---KFO8Q",
+        "type": "button"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 16,
+      "tag": "button",
+      "text": "Submit answer",
+      "selector": "[id=\"maincontentid\"] button:has-text(\"Submit answer\")",
+      "inputType": "button",
+      "attributes": {
+        "class": "Button---root---TwJp3 Button---primary---XmkrI Button---small---HuPO_ Button---center---KFO8Q But...",
+        "type": "button"
+      },
+      "disabled": true,
+      "offscreen": true
+    },
+    {
+      "index": 17,
+      "tag": "a",
+      "text": "ACS End User Terms",
+      "selector": "[id=\"corporateUsePolicyFooterLink\"]",
+      "alternativeSelectors": [
+        "[id=\"footer\"] a:has-text(\"ACS End User Terms\")",
+        "a[href=\"/\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "/",
+        "id": "corporateUsePolicyFooterLink"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 18,
+      "tag": "a",
+      "text": "License Agreement",
+      "selector": "[id=\"licenseAgreement\"]",
+      "alternativeSelectors": [
+        "[id=\"footer\"] a:has-text(\"License Agreement\")",
+        "a[href*=\"https://documentation.skillsof\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "https://documentation.skillsoft.com/en_us/privacy/skillsoft_license_agreement.htm",
+        "id": "licenseAgreement"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 19,
+      "tag": "a",
+      "text": "Privacy Notice",
+      "selector": "[id=\"footer\"] a:has-text(\"Privacy Notice\")",
+      "alternativeSelectors": [
+        "a[href=\"https://www.skillsoft.com/about/privacy-notice\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "https://www.skillsoft.com/about/privacy-notice"
+      },
+      "offscreen": true
+    },
+    {
+      "index": 20,
+      "tag": "a",
+      "text": "Help",
+      "selector": "[id=\"footer\"] a:has-text(\"Help\")",
+      "alternativeSelectors": [
+        "a[href=\"/help\"]"
+      ],
+      "inputType": "",
+      "attributes": {
+        "href": "/help"
+      },
+      "offscreen": true
+    }
+  ]
+}

@@ -56,6 +56,11 @@ export function listPresets(): Array<{
   }> = [];
 
   for (const folder of folders) {
+    // Skip template/hidden folders (starting with _ or .)
+    if (folder.name.startsWith('_') || folder.name.startsWith('.')) {
+      continue;
+    }
+
     try {
       const presetDir = path.join(PRESETS_DIR, folder.name);
       const presetFilePath = path.join(presetDir, 'preset.json');
@@ -66,6 +71,11 @@ export function listPresets(): Array<{
 
       const content = fs.readFileSync(presetFilePath, 'utf-8');
       const preset = JSON.parse(content) as Preset;
+
+      // Skip presets with empty names (incomplete/template presets)
+      if (!preset.name || preset.name.trim() === '') {
+        continue;
+      }
 
       presets.push({
         name: preset.name,
@@ -122,6 +132,62 @@ export function loadPresetFromPath(presetDir: string): Preset | null {
 }
 
 /**
+ * Check if a selector is a semantic description (requires LLM reasoning).
+ * Semantic selectors use the format: {desc:"description of element"}
+ */
+function isSemanticSelector(selector?: string): boolean {
+  if (!selector) return false;
+  return selector.trim().startsWith('{desc:');
+}
+
+/**
+ * Normalize a step plan by auto-setting llmRequired for semantic selectors.
+ * If targetElementSelector uses {desc:"..."} format, llmRequired is set to true.
+ */
+function normalizeStepPlan(step: import('../types/index.js').StepPlan): void {
+  if (isSemanticSelector(step.targetElementSelector)) {
+    step.llmRequired = true;
+  }
+}
+
+/**
+ * Normalize all steps in a session plan.
+ * Auto-sets llmRequired = true for steps with semantic selectors.
+ */
+function normalizeSessionPlan(plan: SessionPlan): void {
+  // Normalize setup steps
+  if (plan.setupSteps) {
+    plan.setupSteps.forEach(normalizeStepPlan);
+  }
+
+  // Normalize cycle-start steps
+  if (plan.cycleStartSteps) {
+    plan.cycleStartSteps.forEach(normalizeStepPlan);
+  }
+
+  // Normalize cycle plan units
+  if (plan.cyclePlan?.units) {
+    for (const unit of plan.cyclePlan.units) {
+      if (unit.type === 'step') {
+        normalizeStepPlan(unit.step);
+      } else if (unit.type === 'loop') {
+        unit.loop.steps.forEach(normalizeStepPlan);
+      }
+    }
+  }
+
+  // Normalize cycle-end steps
+  if (plan.cycleEndSteps) {
+    plan.cycleEndSteps.forEach(normalizeStepPlan);
+  }
+
+  // Normalize wrapup steps
+  if (plan.wrapupSteps) {
+    plan.wrapupSteps.forEach(normalizeStepPlan);
+  }
+}
+
+/**
  * Load session plan from preset directory.
  * @param presetDir - Path to preset directory
  * @param sessionPlanRef - Reference from preset (e.g., "./session-plan.json")
@@ -138,10 +204,23 @@ export function loadSessionPlan(
   const sessionPlanFile = path.join(presetDir, sessionPlanRef);
 
   try {
+    console.log(`[DEBUG] Loading session plan from: ${sessionPlanFile}`);
     const content = fs.readFileSync(sessionPlanFile, 'utf-8');
-    return JSON.parse(content) as SessionPlan;
-  } catch {
-    console.warn(`Warning: Could not load session plan from: ${sessionPlanFile}`);
+    const plan = JSON.parse(content) as SessionPlan;
+
+    // Auto-set llmRequired for semantic selectors
+    normalizeSessionPlan(plan);
+
+    console.log(`[DEBUG] Session plan loaded successfully:`, {
+      cycleStartSteps: plan.cycleStartSteps?.length ?? 0,
+      cycleEndSteps: plan.cycleEndSteps?.length ?? 0,
+      units: plan.cyclePlan?.units?.length ?? 0,
+    });
+
+    return plan;
+  } catch (error) {
+    console.error(`❌ ERROR: Could not load session plan from: ${sessionPlanFile}`);
+    console.error(`   Error:`, error);
     return null;
   }
 }

@@ -1,0 +1,95 @@
+{
+  "currentSection": "cycle-end",
+  "activeLoopId": null,
+  "stepCounter": 6,
+  "sessionPlan": {
+    "goalSummary": "test",
+    "cycleDescription": "One iteration of the main workflow",
+    "numberOfCycles": 1,
+    "setupSteps": [],
+    "cycleStartSteps": [
+      {
+        "stepId": "step-1-choose-quiz-to-take",
+        "description": "choose quiz to take",
+        "instruction": "choose quiz to take",
+        "targetElementSelector": "{desc:\"button with take test text\"}",
+        "llmRequired": false,
+        "waitForReady": {
+          "waitScript": "```javascript\n(async () => {\n    // Wait for at least one button with text containing \"take test\" (case insensitive)\n    const waitForTakeTestButton = () => new Promise(resolve => {\n        const check = () => {\n            const buttons = Array.from(document.querySelectorAll('button, a[role=\"button\"], a.Button---root'));\n            const hasButton = buttons.some(btn => \n                btn.textContent && btn.textContent.toLowerCase().includes('take test')\n            );\n            \n            if (hasButton) {\n                resolve();\n                return true;\n            }\n            return false;\n        };\n\n        // Initial check\n        if (check()) return;\n\n        // Set up observer for DOM changes\n        const observer = new MutationObserver(() => {\n            check();\n        });\n        \n        observer.observe(document.body, {\n            childList: true,\n            subtree: true,\n            characterData: true\n        });\n\n        // Also check periodically for dynamic content\n        const interval = setInterval(() => {\n            if (check()) {\n                clearInterval(interval);\n                observer.disconnect();\n            }\n        }, 100);\n\n        // Cleanup after 30 seconds timeout\n        setTimeout(() => {\n            clearInterval(interval);\n            observer.disconnect();\n            resolve(); // Resolve anyway to prevent hanging\n        }, 30000);\n    });\n\n    // Also wait for main content area to be present\n    const waitForMainContent = () => new Promise(resolve => {\n        if (document.querySelector('#maincontentid')) {\n            resolve();\n            return;\n        }\n        \n        const observer = new MutationObserver(() => {\n            if (document.querySelector('#maincontentid')) {\n                observer.disconnect();\n                resolve();\n            }\n        });\n        \n        observer.observe(document.body, {\n            childList: true,\n            subtree: true\n        });\n    });\n\n    // Wait for both conditions\n    await Promise.all([waitForMainContent(), waitFor",
+          "description": "there should be at least one button with text take test",
+          "timeout": 10000,
+          "onTimeout": "continue"
+        }
+      }
+    ],
+    "cyclePlan": {
+      "units": [
+        {
+          "type": "step",
+          "step": {
+            "stepId": "step-2-start-the-quiz",
+            "description": "start the quiz",
+            "instruction": "start the quiz",
+            "targetElementSelector": "button:has-text(\"Start New Test\")",
+            "llmRequired": false
+          }
+        },
+        {
+          "type": "loop",
+          "loop": {
+            "loopId": "loop-1770041570328",
+            "steps": [
+              {
+                "stepId": "step-3-click-all-the-checkboxes-repre",
+                "description": "click all the checkboxes represent the corrct answer ",
+                "instruction": "click all the checkboxes represent the corrct answer ",
+                "targetElementSelector": "{desc:\"checkbox presents the option for correct answer\"}",
+                "llmRequired": true,
+                "promptRef": "./prompts/step-3-click-all-the-checkboxes-repre.md"
+              },
+              {
+                "stepId": "step-4-submit-the-answer",
+                "description": "submit the answer",
+                "instruction": "submit the answer",
+                "targetElementSelector": "button:has-text(\"Submit answer\")",
+                "llmRequired": false
+              }
+            ]
+          }
+        },
+        {
+          "type": "step",
+          "step": {
+            "stepId": "step-5-click-to-answer-next-question",
+            "description": "click to answer next question",
+            "instruction": "click to answer next question",
+            "targetElementSelector": "button:has-text(\"Next question\")",
+            "llmRequired": false
+          }
+        }
+      ]
+    },
+    "cycleEndSteps": [
+      {
+        "stepId": "step-6-go-back-to-quiz-selection",
+        "description": "go back to quiz selection",
+        "instruction": "go back to quiz selection",
+        "targetElementSelector": "[aria-label=\"Back to track\"]",
+        "llmRequired": false
+      }
+    ],
+    "wrapupSteps": []
+  },
+  "preset": {
+    "name": "test",
+    "description": "test",
+    "goal": {
+      "name": "test",
+      "description": "test",
+      "context": {}
+    },
+    "startUrl": "https://www.google.com",
+    "sessionPlanRef": "./session-plan.json"
+  },
+  "timestamp": "2026-02-02T14:28:02.122Z"
+}

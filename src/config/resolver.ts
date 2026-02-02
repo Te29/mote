@@ -21,10 +21,11 @@ import { loadSessionPlan, loadSystemPrompt, loadPreset, getPresetsDir } from '..
 /**
  * Load preset and resolve all file references.
  * Returns config values + loaded content.
- * presetDir is internal - not exposed to caller.
+ * presetDir is internal - not exposed to caller unless preset is an object.
  */
 async function loadPresetWithFiles(
-  preset: Preset | string
+  preset: Preset | string,
+  explicitPresetDir?: string
 ): Promise<{
   config: Partial<ConfigurableSettings>;
   sessionPlan?: SessionPlan;
@@ -42,7 +43,8 @@ async function loadPresetWithFiles(
     presetDir = path.join(getPresetsDir(), preset);
   } else {
     loadedPreset = preset;
-    // Programmatic preset - can't load files without directory
+    // For object presets, use the explicitly provided directory
+    presetDir = explicitPresetDir;
   }
 
   // Load referenced files (only if we have presetDir)
@@ -56,6 +58,12 @@ async function loadPresetWithFiles(
 
   // Extract config (remove metadata and references)
   const { name, description, sessionPlanRef, systemPromptRef, ...config } = loadedPreset;
+
+  console.log(`[DEBUG RESOLVER] Preset files loaded:`, {
+    sessionPlan: sessionPlan ? 'loaded' : 'null/undefined',
+    systemPrompt: systemPrompt ? 'loaded' : 'null/undefined',
+    presetDir,
+  });
 
   return {
     config,
@@ -100,7 +108,7 @@ export async function resolveConfig(
     // No preset or goal - prompt user to select preset or enter new goal
     const selected = await promptForPresetSelection();
     if (selected) {
-      const loaded = await loadPresetWithFiles(selected.preset);
+      const loaded = await loadPresetWithFiles(selected.preset, selected.presetDir);
       presetConfig = loaded.config;
       loadedSessionPlan = loaded.sessionPlan;
       loadedSystemPrompt = loaded.systemPrompt;

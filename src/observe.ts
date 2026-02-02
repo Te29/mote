@@ -143,13 +143,52 @@ export async function observe(
 
   // Additional wait for dynamic content and scripts to execute
   // Many modern web apps need time for JavaScript to render content
-  await page.waitForTimeout(1500);
+  // Increased to 5000ms for slower dynamic content
+  await page.waitForTimeout(5000);
 
   // Try to wait for network to be idle (indicates AJAX/dynamic content loaded)
   try {
-    await page.waitForLoadState('networkidle', { timeout: 5000 });
+    await page.waitForLoadState('networkidle', { timeout: 8000 });
   } catch {
     // Timeout is okay, some pages have persistent connections
+  }
+
+  // Scroll the page to load lazy-loaded content
+  // Many modern pages load content as you scroll (infinite scroll, lazy loading)
+  try {
+    const hasScrollSpace = await page.evaluate(() => {
+      return document.documentElement.scrollHeight > window.innerHeight;
+    });
+
+    if (hasScrollSpace) {
+      console.log('[DEBUG OBSERVE] Page has scroll space, scrolling to load all content...');
+
+      // Scroll to bottom in steps to trigger lazy loading
+      await page.evaluate(async () => {
+        const scrollStep = 500;
+        const scrollDelay = 100;
+
+        const totalHeight = document.documentElement.scrollHeight;
+        let currentPosition = 0;
+
+        while (currentPosition < totalHeight) {
+          window.scrollBy(0, scrollStep);
+          currentPosition += scrollStep;
+          await new Promise(resolve => setTimeout(resolve, scrollDelay));
+        }
+
+        // Scroll back to top
+        window.scrollTo(0, 0);
+      });
+
+      // Wait a bit for any content that loaded during scrolling
+      await page.waitForTimeout(1000);
+
+      console.log('[DEBUG OBSERVE] Scrolling complete, content loaded');
+    }
+  } catch (error) {
+    console.warn('[DEBUG OBSERVE] Scrolling failed (non-fatal):', error);
+    // Continue even if scrolling fails
   }
 
   // Get page info using browser module
@@ -158,6 +197,14 @@ export async function observe(
   // Find interactive elements
   // If targetSelectors is provided, we prioritize finding them
   const elements = await extractInteractiveElements(page, targetSelectors);
+
+  console.log(`[DEBUG OBSERVE] Found ${elements.length} interactive elements`);
+  if (elements.length === 0) {
+    console.warn('[DEBUG OBSERVE] WARNING: No interactive elements found! URL:', url);
+    console.warn('[DEBUG OBSERVE] This may indicate the page is still loading or elements are in iframes');
+  } else if (elements.length < 5) {
+    console.log('[DEBUG OBSERVE] Sample elements:', elements.map(e => ({ tag: e.tag, text: e.text.substring(0, 50) })));
+  }
 
   let markdown = '';
   // Optimization: If targeted observation (targetSelectors provided) and we found them,

@@ -9,13 +9,59 @@ import type {
   AgentStateCycleEnd,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
+import type { StepPlan, Action } from '../types/actions.js';
+import type { Page } from 'playwright';
 import { createTimestamp, getCurrentCycleIndex, getProgress, getCompletedCycles } from '../types/session.js';
 import { shouldIntervene, requestIntervention, processInterventionControl, checkInterrupt } from '../interaction.js';
 import { logVariable } from '../utils/debug.js';
 import { think } from '../reason.js';
 import { executeVerification } from '../utils/verification.js';
 import { saveCheckpoint, type SessionCheckpoint, type CheckpointRuntimeState } from '../utils/checkpoint.js';
+import { observe } from '../observe.js';
+import { loadStepPrompt, renderPromptTemplate } from '../utils/preset.js';
 import * as path from 'path';
+
+// -----------------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -----------------------------------------------------------------------------
+
+/**
+ * Execute waitForReady hook for a step if defined.
+ * Waits for the page to be ready according to the step's waitScript.
+ *
+ * @param page - Playwright page object
+ * @param stepPlan - The step plan that may have waitForReady config
+ * @returns true if successful or no waitForReady defined, false if failed with onTimeout='fail'
+ */
+async function executeWaitForReady(page: Page, stepPlan: StepPlan): Promise<{ success: boolean; error?: string }> {
+  if (!stepPlan.waitForReady) {
+    return { success: true };
+  }
+
+  const { waitScript, description, timeout = 10000, onTimeout = 'continue' } = stepPlan.waitForReady;
+
+  console.log(`  ⏳ Waiting for page ready: ${description || 'custom script'}`);
+
+  try {
+    await Promise.race([
+      page.evaluate(waitScript),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('waitForReady timeout')), timeout)
+      )
+    ]);
+    console.log(`  ✓ Page ready`);
+    return { success: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`  ⚠️ waitForReady failed: ${msg}`);
+
+    if (onTimeout === 'fail') {
+      return { success: false, error: `waitForReady failed for step "${stepPlan.stepId}": ${msg}` };
+    }
+    // onTimeout: 'continue' - proceed anyway
+    return { success: true };
+  }
+}
 
 // -----------------------------------------------------------------------------
 // CYCLE START
@@ -93,6 +139,10 @@ export async function handleCycleStart(
   }
 
   // Execute cycle-start steps if defined
+  console.log(`[DEBUG] ctx.sessionPlan exists: ${!!ctx.sessionPlan}`);
+  console.log(`[DEBUG] cycleStartSteps exists: ${!!ctx.sessionPlan?.cycleStartSteps}`);
+  console.log(`[DEBUG] cycleStartSteps length: ${ctx.sessionPlan?.cycleStartSteps?.length}`);
+
   if (ctx.sessionPlan?.cycleStartSteps && ctx.sessionPlan.cycleStartSteps.length > 0) {
     console.log(`🔄 === CYCLE ${cycleIndex + 1} START PHASE ===`);
 
@@ -113,6 +163,11 @@ export async function handleCycleStart(
 
       let success = true;
       let error: string | undefined;
+      let pageState: Awaited<ReturnType<typeof observe>> | undefined;
+
+      // Execute waitForReady if defined (wait for page to be ready before action)
+      // On failure, just warn and continue - don't terminate
+      await executeWaitForReady(ctx.runtime.activePage, stepPlan);
 
       // Navigate to step URL if specified
       if (stepPlan.url) {
@@ -126,14 +181,87 @@ export async function handleCycleStart(
         }
       }
 
-      // Execute action if defined
-      if (success && stepPlan.action) {
-        console.log(`  ⚡ Executing action: ${stepPlan.action.type}`);
+      // Determine action to execute
+      let actionToExecute: Action | undefined = stepPlan.action;
+
+      // LLM-driven step: Use reasoning to determine the action
+      if (success && stepPlan.llmRequired && !stepPlan.action) {
+        console.log(`  🧠 LLM-driven step: ${stepPlan.description}`);
+
+        // Observe page to get current state
+        pageState = await observe(ctx.runtime.activePage);
+
+        // Load step-specific prompt if provided
+        let stepPrompt: string | undefined;
+        if (stepPlan.promptRef && ctx.presetDir) {
+          const rawPrompt = loadStepPrompt(ctx.presetDir, stepPlan.promptRef);
+          if (rawPrompt) {
+            stepPrompt = renderPromptTemplate(rawPrompt, {
+              instruction: stepPlan.instruction || stepPlan.description,
+              step: stepPlan,
+              context: ctx.goal?.context || {},
+              goal: ctx.goal,
+            });
+            console.log(`   📝 Loaded step prompt from: ${stepPlan.promptRef}`);
+          }
+        }
+
+        // Build instruction for LLM
+        const stepInstruction = stepPlan.instruction || stepPlan.description;
+        const hints: string[] = [];
+        if (stepPlan.targetElementSelector) {
+          hints.push(`Target element: ${stepPlan.targetElementSelector}`);
+        }
+
+        const fullInstruction = hints.length > 0
+          ? `${stepInstruction}\n\nHints:\n${hints.join('\n')}`
+          : stepInstruction;
+
+        // Call reasoning module
+        const llmResult = await think(
+          pageState,
+          ctx.goal,
+          ctx.preset,
+          ctx.tracker,
+          ctx.history,
+          ctx.services.llmClient,
+          ctx.interventionMetrics,
+          {
+            tokenMarkdown: ctx.tokenMarkdown,
+            tokenElements: ctx.tokenElements,
+            tokenMaxElements: ctx.tokenMaxElements,
+            tokenHistory: ctx.tokenHistory,
+          },
+          {
+            point: 'ACTION',
+            instruction: fullInstruction,
+          },
+          stepPrompt || ctx.customSystemPrompt,
+        );
+
+        if (llmResult.type === 'ACTION') {
+          console.log(`   ✓ LLM determined action: ${llmResult.action.type} - ${llmResult.action.reason}`);
+          actionToExecute = llmResult.action;
+        } else if (llmResult.type === 'GOAL_SUCCESS') {
+          console.log(`   ✓ LLM reports goal success: ${llmResult.finalAnswer}`);
+          // Continue - step is successful
+        } else if (llmResult.type === 'FAIL') {
+          console.log(`   ✗ LLM failed: ${llmResult.error}`);
+          success = false;
+          error = llmResult.error;
+        } else {
+          console.log(`   ⚠️ LLM returned ${llmResult.type}, continuing...`);
+        }
+      }
+
+      // Execute action if we have one
+      if (success && actionToExecute) {
+        console.log(`  ⚡ Executing action: ${actionToExecute.type}`);
         const { executeAction } = await import('../act/act.js');
         const result = await executeAction(
           ctx.runtime.activePage,
-          stepPlan.action,
-          [],
+          actionToExecute,
+          pageState?.elements || [],
         );
         success = result.success;
         error = result.error;
@@ -148,7 +276,7 @@ export async function handleCycleStart(
         globalIndex,
         stepId: stepPlan.stepId,
         isCompleted: success,
-        action: stepPlan.action,
+        action: actionToExecute,
         stepDescription: stepPlan.description,
         pageContext: {
           url: ctx.runtime.activePage.url(),
@@ -161,7 +289,7 @@ export async function handleCycleStart(
       // Record in history
       const stepResult = {
         step: ctx.history.length + 1,
-        action: stepPlan.action,
+        action: actionToExecute,
         success,
         error,
         timestamp: createTimestamp(),
@@ -254,6 +382,11 @@ export async function handleCycleEnd(
 
         let success = true;
         let error: string | undefined;
+        let pageState: Awaited<ReturnType<typeof observe>> | undefined;
+
+        // Execute waitForReady if defined (wait for page to be ready before action)
+        // On failure, just warn and continue - don't terminate
+        await executeWaitForReady(ctx.runtime.activePage, stepPlan);
 
         // Navigate to step URL if specified
         if (stepPlan.url) {
@@ -267,14 +400,86 @@ export async function handleCycleEnd(
           }
         }
 
-        // Execute action if defined
-        if (success && stepPlan.action) {
-          console.log(`  ⚡ Executing action: ${stepPlan.action.type}`);
+        // Determine action to execute
+        let actionToExecute: Action | undefined = stepPlan.action;
+
+        // LLM-driven step: Use reasoning to determine the action
+        if (success && stepPlan.llmRequired && !stepPlan.action) {
+          console.log(`  🧠 LLM-driven step: ${stepPlan.description}`);
+
+          // Observe page to get current state
+          pageState = await observe(ctx.runtime.activePage);
+
+          // Load step-specific prompt if provided
+          let stepPrompt: string | undefined;
+          if (stepPlan.promptRef && ctx.presetDir) {
+            const rawPrompt = loadStepPrompt(ctx.presetDir, stepPlan.promptRef);
+            if (rawPrompt) {
+              stepPrompt = renderPromptTemplate(rawPrompt, {
+                instruction: stepPlan.instruction || stepPlan.description,
+                step: stepPlan,
+                context: ctx.goal?.context || {},
+                goal: ctx.goal,
+              });
+              console.log(`   📝 Loaded step prompt from: ${stepPlan.promptRef}`);
+            }
+          }
+
+          // Build instruction for LLM
+          const stepInstruction = stepPlan.instruction || stepPlan.description;
+          const hints: string[] = [];
+          if (stepPlan.targetElementSelector) {
+            hints.push(`Target element: ${stepPlan.targetElementSelector}`);
+          }
+
+          const fullInstruction = hints.length > 0
+            ? `${stepInstruction}\n\nHints:\n${hints.join('\n')}`
+            : stepInstruction;
+
+          // Call reasoning module
+          const llmResult = await think(
+            pageState,
+            ctx.goal,
+            ctx.preset,
+            ctx.tracker,
+            ctx.history,
+            ctx.services.llmClient,
+            ctx.interventionMetrics,
+            {
+              tokenMarkdown: ctx.tokenMarkdown,
+              tokenElements: ctx.tokenElements,
+              tokenMaxElements: ctx.tokenMaxElements,
+              tokenHistory: ctx.tokenHistory,
+            },
+            {
+              point: 'ACTION',
+              instruction: fullInstruction,
+            },
+            stepPrompt || ctx.customSystemPrompt,
+          );
+
+          if (llmResult.type === 'ACTION') {
+            console.log(`   ✓ LLM determined action: ${llmResult.action.type} - ${llmResult.action.reason}`);
+            actionToExecute = llmResult.action;
+          } else if (llmResult.type === 'GOAL_SUCCESS') {
+            console.log(`   ✓ LLM reports goal success: ${llmResult.finalAnswer}`);
+          } else if (llmResult.type === 'FAIL') {
+            console.log(`   ✗ LLM failed: ${llmResult.error}`);
+            success = false;
+            error = llmResult.error;
+          } else {
+            console.log(`   ⚠️ LLM returned ${llmResult.type}, continuing...`);
+          }
+        }
+
+        // Execute action if we have one
+        if (success && actionToExecute) {
+          console.log(`  ⚡ Executing action: ${actionToExecute.type}`);
           const { executeAction } = await import('../act/act.js');
           const result = await executeAction(
             ctx.runtime.activePage,
-            stepPlan.action,
-            [],
+            actionToExecute,
+            pageState?.elements || [],
           );
           success = result.success;
           error = result.error;
@@ -289,7 +494,7 @@ export async function handleCycleEnd(
           globalIndex,
           stepId: stepPlan.stepId,
           isCompleted: success,
-          action: stepPlan.action,
+          action: actionToExecute,
           stepDescription: stepPlan.description,
           pageContext: {
             url: ctx.runtime.activePage.url(),
@@ -302,7 +507,7 @@ export async function handleCycleEnd(
         // Record in history
         const stepResult = {
           step: ctx.history.length + 1,
-          action: stepPlan.action,
+          action: actionToExecute,
           success,
           error,
           timestamp: createTimestamp(),

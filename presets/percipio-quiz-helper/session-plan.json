@@ -1,0 +1,106 @@
+{
+  "goalSummary": "Complete quiz by selecting correct answers",
+  "cycleDescription": "One iteration of the main workflow",
+  "numberOfCycles": -1,
+  "setupSteps": [],
+  "cycleStartSteps": [
+    {
+      "stepId": "step-1-choose-quiz-to-take",
+      "description": "click the Take test button",
+      "instruction": "Click on the first visible 'Take test' button to start a quiz. Use the click action directly - scrolling is not needed as it will be done automatically.",
+      "targetElementSelector": "{desc:\"the first button with take test text\"}",
+      "llmRequired": true,
+      "waitForReady": {
+        "waitScript": "new Promise((resolve, reject) => { let attempts = 0; const check = () => { attempts++; const allButtons = Array.from(document.querySelectorAll('button, a')); const btn = allButtons.find(el => { const text = (el.textContent || '').toLowerCase(); const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase(); const combined = text + ' ' + ariaLabel; return combined.includes('take') && (combined.includes('test') || combined.includes('quiz') || combined.includes('assessment')); }); if (btn) { console.log(`[waitForReady] Found button after ${attempts} attempts:`, btn.textContent?.trim() || btn.getAttribute('aria-label')); resolve(); } else if (attempts > 300) { console.warn(`[waitForReady] Timeout after ${attempts} attempts. Found ${allButtons.length} buttons. Sample:`, allButtons.slice(0, 10).map(b => ({ text: b.textContent?.trim(), aria: b.getAttribute('aria-label') }))); reject(new Error('Button not found after 300 attempts')); } else { setTimeout(check, 100); } }; check(); })",
+        "timeout": 30000,
+        "onTimeout": "continue",
+        "description": "Wait for 'Take Test' button to load"
+      }
+    }
+  ],
+  "cyclePlan": {
+    "units": [
+      {
+        "type": "step",
+        "step": {
+          "stepId": "step-2-start-the-quiz",
+          "description": "click Start New Test button",
+          "instruction": "Click the 'Start New Test' button to begin the quiz. Use the click action directly.",
+          "targetElementSelector": "button:has-text(\"Start New Test\")",
+          "llmRequired": true,
+          "waitForReady": {
+            "waitScript": "new Promise(resolve => { const check = () => { const btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent?.toLowerCase().includes('start new test') || el.textContent?.toLowerCase().includes('start test')); if (btn && window.getComputedStyle(btn).display !== 'none') resolve(); else setTimeout(check, 100); }; check(); })",
+            "timeout": 10000,
+            "onTimeout": "continue",
+            "description": "Wait for Start Test button to be visible"
+          }
+        }
+      },
+      {
+        "type": "loop",
+        "loop": {
+          "loopId": "loop-1770041570328",
+          "loopCondition": {
+            "verification": {
+              "script": "(() => !Array.from(document.querySelectorAll('button')).some(btn => btn.textContent?.toLowerCase().includes('done')))()",
+              "description": "Continue until 'Done' button appears"
+            },
+            "maxIterations": 100
+          },
+          "steps": [
+            {
+              "stepId": "step-3-click-all-the-checkboxes-repre",
+              "description": "click all the checkboxes representing the correct answer",
+              "instruction": "click all the checkboxes representing the correct answer",
+              "targetElementSelector": "{desc:\"checkbox presents the option for correct answer\"}",
+              "llmRequired": true,
+              "promptRef": "./prompts/step-3-click-all-the-checkboxes-repre.md",
+              "waitForReady": {
+                "waitScript": "new Promise(resolve => { const check = () => { const question = document.querySelector('[class*=\"question\"], [class*=\"Question\"], h1, h2'); const options = document.querySelectorAll('input[type=\"radio\"], input[type=\"checkbox\"], [role=\"radio\"], [role=\"checkbox\"]'); if (question && options.length > 0) resolve(); else setTimeout(check, 100); }; check(); })",
+                "timeout": 10000,
+                "onTimeout": "continue",
+                "description": "Wait for question and answer options to load"
+              }
+            },
+            {
+              "stepId": "step-4-submit-the-answer",
+              "description": "click Submit answer button",
+              "instruction": "Click the 'Submit answer' button to submit your answer. Use the click action directly.",
+              "targetElementSelector": "button:has-text(\"Submit answer\")",
+              "llmRequired": true,
+              "waitForReady": {
+                "waitScript": "new Promise(resolve => { const check = () => { const btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent?.toLowerCase().includes('submit')); if (btn && window.getComputedStyle(btn).display !== 'none' && !btn.disabled) resolve(); else setTimeout(check, 100); }; check(); })",
+                "timeout": 10000,
+                "onTimeout": "continue",
+                "description": "Wait for Submit button to be visible and enabled"
+              }
+            },
+            {
+              "stepId": "step-5-click-to-answer-next-question",
+              "description": "click Next question button",
+              "instruction": "Click the 'Next question' button to proceed to the next question. Use the click action directly.",
+              "targetElementSelector": "button:has-text(\"Next question\")",
+              "llmRequired": true,
+              "waitForReady": {
+                "waitScript": "new Promise(resolve => { const check = () => { const btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent?.toLowerCase().includes('next')); if (btn && window.getComputedStyle(btn).display !== 'none' && !btn.disabled) resolve(); else setTimeout(check, 100); }; check(); })",
+                "timeout": 10000,
+                "onTimeout": "continue",
+                "description": "Wait for Next question button to be visible and enabled"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "cycleEndSteps": [
+    {
+      "stepId": "step-6-go-back-to-quiz-selection",
+      "description": "click Back to track button",
+      "instruction": "Click the 'Back to track' button to return to quiz selection. Use the click action directly.",
+      "targetElementSelector": "[aria-label=\"Back to track\"]",
+      "llmRequired": true
+    }
+  ],
+  "wrapupSteps": []
+}

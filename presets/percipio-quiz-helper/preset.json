@@ -1,0 +1,11 @@
+{
+  "name": "percipio-quiz-helper",
+  "description": "finish all the online quizzes",
+  "goal": {
+    "name": "finish all the online quizzes",
+    "description": "finish all the online quizzes",
+    "context": {}
+  },
+  "startUrl": "",
+  "sessionPlanRef": "./session-plan.json"
+}

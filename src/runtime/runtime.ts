@@ -183,6 +183,13 @@ export async function executeRuntime(
     },
   };
 
+  // Debug: Verify sessionPlan is properly loaded
+  console.log('[DEBUG RUNTIME] Context initialized:');
+  console.log(`  - ctx.sessionPlan exists: ${!!ctx.sessionPlan}`);
+  console.log(`  - tracker.sessionPlan exists: ${!!tracker.sessionPlan}`);
+  console.log(`  - cycleStartSteps: ${ctx.sessionPlan?.cycleStartSteps?.length ?? 'undefined'}`);
+  console.log(`  - cyclePlan.units: ${ctx.sessionPlan?.cyclePlan?.units?.length ?? 'undefined'}`);
+
   // Log if resuming with restored state
   if (config.restoredRuntimeState) {
     console.log(`📍 Resumed runtime state: pointer=${JSON.stringify(ctx.runtime.executionPointer)}, loops=${Object.keys(ctx.runtime.loopStates).length}`);

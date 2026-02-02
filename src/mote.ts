@@ -32,16 +32,18 @@ config();
 // -----------------------------------------------------------------------------
 
 /**
- * Extract RuntimeSettings from ResolvedConfig.
+ * Extract RuntimeSettings from ResolvedConfig and BootstrapResult.
+ * Uses tracker.sessionPlan as the source of truth (may have been modified during plan preview).
  */
 function extractSettings(
   config: ResolvedConfig,
+  tracker: SessionTracker,
   presetMetadata?: { name: string; dir: string }
 ): RuntimeSettings {
   return {
     goal: config.goal,
-    cyclePlan: config.sessionPlan?.cyclePlan,
-    sessionPlan: config.sessionPlan,
+    cyclePlan: tracker.sessionPlan?.cyclePlan,
+    sessionPlan: tracker.sessionPlan,
     customSystemPrompt: config.systemPrompt,
     presetDir: presetMetadata?.dir,
     engagementMode: config.engagementMode,
@@ -195,7 +197,7 @@ export async function runAgent(
   // ---------------------------------------------------------------------------
   let runtimeResult: RuntimeResult;
   try {
-    const runtimeSettings = extractSettings(config, presetMetadata);
+    const runtimeSettings = extractSettings(config, bootstrapResult.tracker, presetMetadata);
 
     runtimeResult = await executeRuntime({
       settings: runtimeSettings,
