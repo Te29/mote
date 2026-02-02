@@ -319,7 +319,12 @@ export async function promptPhaseControl(
   console.log(`  ${colors.bright}[V]${colors.reset}erification - Add verification script`);
 
   // Show what the next phase will be
-  const nextPhase = section === 'setup' ? 'cycle' : section === 'cycle' ? 'wrapup' : 'finalize';
+  const nextPhase =
+    section === 'setup' ? 'cycle-start' :
+    section === 'cycle-start' ? 'cycle' :
+    section === 'cycle' ? 'cycle-end' :
+    section === 'cycle-end' ? 'wrapup' :
+    'finalize';
   console.log(`  ${colors.bright}[N]${colors.reset}ext phase → ${colors.cyan}${nextPhase}${colors.reset}`);
 
   console.log(`  ${colors.bright}[D]${colors.reset}one - Finish recording`);

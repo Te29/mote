@@ -335,11 +335,13 @@ export interface CyclePlan {
  * Self-contained with all metadata needed for execution.
  *
  * Structure:
- *   setupSteps[]  → One-time setup before cycles (flat, no loops)
- *   cyclePlan     → Blueprint for each cycle (can contain loops)
- *   wrapupSteps[] → One-time finalization after cycles (flat, no loops)
+ *   setupSteps[]      → One-time setup before cycles (flat, no loops)
+ *   cycleStartSteps[] → Steps at START of EACH cycle (flat, no loops)
+ *   cyclePlan         → Blueprint for each cycle (can contain loops)
+ *   cycleEndSteps[]   → Steps at END of EACH cycle (flat, no loops)
+ *   wrapupSteps[]     → One-time finalization after cycles (flat, no loops)
  *
- * Execution flow: setup → setupVerification → cycles → wrapup → wrapupVerification → verification
+ * Execution flow: setup → setupVerification → [cycleStart → cycle → cycleEnd]×N → wrapup → wrapupVerification → verification
  */
 export interface SessionPlan {
   /**
@@ -368,6 +370,19 @@ export interface SessionPlan {
   setupVerification?: VerificationConfig;
 
   /**
+   * Steps to execute at the START of EACH cycle iteration.
+   * Flat array - no loops allowed in cycle-start phase.
+   * Use for: navigating to starting point, resetting state, etc.
+   */
+  cycleStartSteps?: StepPlan[];
+
+  /**
+   * Optional verification to run after cycle-start steps complete.
+   * Validates cycle is ready to begin main workflow.
+   */
+  cycleStartVerification?: VerificationConfig;
+
+  /**
    * Blueprint for each cycle (the repeatable part).
    * Can contain steps and loops.
    */
@@ -379,6 +394,19 @@ export interface SessionPlan {
    * Use -1 for unlimited cycles (keep going until verification passes)
    */
   numberOfCycles?: number;
+
+  /**
+   * Steps to execute at the END of EACH cycle iteration.
+   * Flat array - no loops allowed in cycle-end phase.
+   * Use for: saving progress, logging out, cleanup, etc.
+   */
+  cycleEndSteps?: StepPlan[];
+
+  /**
+   * Optional verification to run after cycle-end steps complete.
+   * Validates cycle iteration completed correctly.
+   */
+  cycleEndVerification?: VerificationConfig;
 
   /**
    * Session-level wrapup steps (executed once after all cycles complete).

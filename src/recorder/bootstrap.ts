@@ -106,7 +106,9 @@ async function startFreshRecording(
     cycleDescription: 'One iteration of the main workflow',
     numberOfCycles: 1,
     setupSteps: [],
+    cycleStartSteps: [],
     cyclePlan: { units: [] },
+    cycleEndSteps: [],
     wrapupSteps: [],
   };
 

@@ -24,8 +24,9 @@ export type RecordingPhase = 'INIT' | 'RECORDING' | 'FINALIZE' | 'DONE';
 
 /**
  * Recording section within RECORDING phase.
+ * Flow: setup → cycle-start → cycle → cycle-end → wrapup
  */
-export type RecordingSection = 'setup' | 'cycle' | 'wrapup';
+export type RecordingSection = 'setup' | 'cycle-start' | 'cycle' | 'cycle-end' | 'wrapup';
 
 /**
  * Recorder state - discriminated union (mirrors AgentState pattern).

@@ -5,15 +5,36 @@
 
   "setupSteps": [],
 
+  "cycleStartSteps": [],
+
   "cyclePlan": {
     "startUrl": "",
-    "units": [],
+    "units": [
+      {
+        "type": "step",
+        "step": {
+          "stepId": "example-step",
+          "description": "Example step with waitForReady",
+          "instruction": "Describe what the LLM should do",
+          "targetElementSelector": "",
+          "llmRequired": false,
+          "waitForReady": {
+            "waitScript": "new Promise(resolve => { if (document.querySelector('.content-loaded')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('.content-loaded')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })",
+            "description": "Wait for content to load",
+            "timeout": 10000,
+            "onTimeout": "continue"
+          }
+        }
+      }
+    ],
     "verification": {
       "script": "",
       "description": "",
       "onFailure": "llm"
     }
   },
+
+  "cycleEndSteps": [],
 
   "wrapupSteps": [],
 

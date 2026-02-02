@@ -193,10 +193,10 @@ async function handlePhaseControl(
 ): Promise<RecorderState | null> {
   switch (control) {
     case 'start-loop':
-      // Loops only make sense in cycle section (setup/wrapup run once)
+      // Loops only make sense in cycle section (other sections run once per cycle or session)
       if (state.section !== 'cycle') {
         console.log('\n⚠️ Loops can only be created in the cycle section.');
-        console.log('   Move to cycle section first (setup → cycle → wrapup).');
+        console.log('   Move to cycle section first (setup → cycle-start → cycle → cycle-end → wrapup).');
         return null;
       }
       const loopConfig = await promptLoopConfig();
@@ -253,8 +253,12 @@ function printSectionHeader(section: RecordingSection, loopId: string | null): v
 function getNextSection(current: RecordingSection): RecordingSection | null {
   switch (current) {
     case 'setup':
+      return 'cycle-start';
+    case 'cycle-start':
       return 'cycle';
     case 'cycle':
+      return 'cycle-end';
+    case 'cycle-end':
       return 'wrapup';
     case 'wrapup':
       return null;
@@ -285,6 +289,11 @@ function addStepToSection(
       plan.setupSteps.push(step);
       break;
 
+    case 'cycle-start':
+      if (!plan.cycleStartSteps) plan.cycleStartSteps = [];
+      plan.cycleStartSteps.push(step);
+      break;
+
     case 'cycle':
       if (loopId) {
         // Find loop and add step to it
@@ -298,6 +307,11 @@ function addStepToSection(
       } else {
         plan.cyclePlan.units.push(unit);
       }
+      break;
+
+    case 'cycle-end':
+      if (!plan.cycleEndSteps) plan.cycleEndSteps = [];
+      plan.cycleEndSteps.push(step);
       break;
 
     case 'wrapup':
@@ -352,9 +366,17 @@ function addVerificationToSection(
       // Runs after setup steps complete, before cycles begin
       ctx.sessionPlan.setupVerification = verification;
       break;
+    case 'cycle-start':
+      // Runs after cycle-start steps complete, before main cycle
+      ctx.sessionPlan.cycleStartVerification = verification;
+      break;
     case 'cycle':
       // Runs after each cycle completes
       ctx.sessionPlan.cyclePlan.verification = verification;
+      break;
+    case 'cycle-end':
+      // Runs after cycle-end steps complete
+      ctx.sessionPlan.cycleEndVerification = verification;
       break;
     case 'wrapup':
       // Runs after wrapup steps complete

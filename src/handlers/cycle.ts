@@ -92,6 +92,114 @@ export async function handleCycleStart(
     // But since we transition immediately to OBSERVE, let OBSERVE handle it.
   }
 
+  // Execute cycle-start steps if defined
+  if (ctx.sessionPlan?.cycleStartSteps && ctx.sessionPlan.cycleStartSteps.length > 0) {
+    console.log(`🔄 === CYCLE ${cycleIndex + 1} START PHASE ===`);
+
+    // Initialize tracker for this cycle's start steps if needed
+    if (!ctx.tracker.cycles[cycleIndex].cycleStartSteps) {
+      ctx.tracker.cycles[cycleIndex].cycleStartSteps = [];
+    }
+
+    const totalSteps = ctx.sessionPlan.cycleStartSteps.length;
+    const executedSteps = ctx.tracker.cycles[cycleIndex].cycleStartSteps!.length;
+
+    // Execute remaining cycle-start steps
+    for (let i = executedSteps; i < totalSteps; i++) {
+      const stepPlan = ctx.sessionPlan.cycleStartSteps[i];
+      const globalIndex = ctx.history.length;
+
+      console.log(`📋 Executing cycle-start step ${i + 1}/${totalSteps}: ${stepPlan.description}`);
+
+      let success = true;
+      let error: string | undefined;
+
+      // Navigate to step URL if specified
+      if (stepPlan.url) {
+        console.log(`  🌐 Navigating to: ${stepPlan.url}`);
+        try {
+          await ctx.services.browser.navigateTo(ctx.runtime.activePage, stepPlan.url);
+        } catch (navError) {
+          console.error('  ⚠️ Navigation failed:', navError);
+          success = false;
+          error = navError instanceof Error ? navError.message : String(navError);
+        }
+      }
+
+      // Execute action if defined
+      if (success && stepPlan.action) {
+        console.log(`  ⚡ Executing action: ${stepPlan.action.type}`);
+        const { executeAction } = await import('../act/act.js');
+        const result = await executeAction(
+          ctx.runtime.activePage,
+          stepPlan.action,
+          [],
+        );
+        success = result.success;
+        error = result.error;
+
+        if (result.newPage) {
+          ctx.runtime.activePage = result.newPage;
+        }
+      }
+
+      // Record step in tracker
+      const stepTracker = {
+        globalIndex,
+        stepId: stepPlan.stepId,
+        isCompleted: success,
+        action: stepPlan.action,
+        stepDescription: stepPlan.description,
+        pageContext: {
+          url: ctx.runtime.activePage.url(),
+          title: await ctx.runtime.activePage.title().catch(() => ''),
+        },
+      };
+      ctx.tracker.cycles[cycleIndex].cycleStartSteps!.push(stepTracker);
+      ctx.tracker.lastUpdatedAt = createTimestamp();
+
+      // Record in history
+      const stepResult = {
+        step: ctx.history.length + 1,
+        action: stepPlan.action,
+        success,
+        error,
+        timestamp: createTimestamp(),
+      };
+      ctx.history.push(stepResult);
+
+      if (!success) {
+        console.error(`  ❌ Cycle-start step failed: ${error}`);
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `Cycle ${cycleIndex + 1} start failed at step ${i + 1}: ${error}`,
+        };
+      }
+
+      console.log(`  ✅ Cycle-start step completed`);
+    }
+
+    // Run cycle-start verification if defined
+    if (ctx.sessionPlan.cycleStartVerification) {
+      console.log('🔍 Running cycle-start verification...');
+      const verifyResult = await executeVerification(
+        ctx.runtime.activePage,
+        ctx.sessionPlan.cycleStartVerification,
+      );
+
+      if (!verifyResult.passed) {
+        console.error(`❌ Cycle-start verification failed: ${verifyResult.detail || verifyResult.error}`);
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `Cycle ${cycleIndex + 1} start verification failed: ${verifyResult.detail || verifyResult.error}`,
+        };
+      }
+      console.log(`✅ Cycle-start verification passed: ${verifyResult.detail || 'OK'}`);
+    }
+  }
+
   // Navigation to cycleStartUrl if defined (e.g. reset for next task)
   if (ctx.tracker.cycleStartUrl) {
     console.log(`🌐 Resetting to cycle start URL: ${ctx.tracker.cycleStartUrl}`);
@@ -125,6 +233,111 @@ export async function handleCycleEnd(
   const cycle = ctx.tracker.cycles[state.cycleIndex];
 
   if (cycle) {
+    // Execute cycle-end steps if defined (before marking cycle complete)
+    if (ctx.sessionPlan?.cycleEndSteps && ctx.sessionPlan.cycleEndSteps.length > 0) {
+      console.log(`🏁 === CYCLE ${state.cycleIndex + 1} END PHASE ===`);
+
+      // Initialize tracker for this cycle's end steps if needed
+      if (!cycle.cycleEndSteps) {
+        cycle.cycleEndSteps = [];
+      }
+
+      const totalSteps = ctx.sessionPlan.cycleEndSteps.length;
+      const executedSteps = cycle.cycleEndSteps.length;
+
+      // Execute remaining cycle-end steps
+      for (let i = executedSteps; i < totalSteps; i++) {
+        const stepPlan = ctx.sessionPlan.cycleEndSteps[i];
+        const globalIndex = ctx.history.length;
+
+        console.log(`📋 Executing cycle-end step ${i + 1}/${totalSteps}: ${stepPlan.description}`);
+
+        let success = true;
+        let error: string | undefined;
+
+        // Navigate to step URL if specified
+        if (stepPlan.url) {
+          console.log(`  🌐 Navigating to: ${stepPlan.url}`);
+          try {
+            await ctx.services.browser.navigateTo(ctx.runtime.activePage, stepPlan.url);
+          } catch (navError) {
+            console.error('  ⚠️ Navigation failed:', navError);
+            success = false;
+            error = navError instanceof Error ? navError.message : String(navError);
+          }
+        }
+
+        // Execute action if defined
+        if (success && stepPlan.action) {
+          console.log(`  ⚡ Executing action: ${stepPlan.action.type}`);
+          const { executeAction } = await import('../act/act.js');
+          const result = await executeAction(
+            ctx.runtime.activePage,
+            stepPlan.action,
+            [],
+          );
+          success = result.success;
+          error = result.error;
+
+          if (result.newPage) {
+            ctx.runtime.activePage = result.newPage;
+          }
+        }
+
+        // Record step in tracker
+        const stepTracker = {
+          globalIndex,
+          stepId: stepPlan.stepId,
+          isCompleted: success,
+          action: stepPlan.action,
+          stepDescription: stepPlan.description,
+          pageContext: {
+            url: ctx.runtime.activePage.url(),
+            title: await ctx.runtime.activePage.title().catch(() => ''),
+          },
+        };
+        cycle.cycleEndSteps.push(stepTracker);
+        ctx.tracker.lastUpdatedAt = createTimestamp();
+
+        // Record in history
+        const stepResult = {
+          step: ctx.history.length + 1,
+          action: stepPlan.action,
+          success,
+          error,
+          timestamp: createTimestamp(),
+        };
+        ctx.history.push(stepResult);
+
+        if (!success) {
+          console.error(`  ❌ Cycle-end step failed: ${error}`);
+          return {
+            phase: 'TERMINATED',
+            success: false,
+            message: `Cycle ${state.cycleIndex + 1} end failed at step ${i + 1}: ${error}`,
+          };
+        }
+
+        console.log(`  ✅ Cycle-end step completed`);
+      }
+
+      // Run cycle-end verification if defined
+      if (ctx.sessionPlan.cycleEndVerification) {
+        console.log('🔍 Running cycle-end verification...');
+        const verifyResult = await executeVerification(
+          ctx.runtime.activePage,
+          ctx.sessionPlan.cycleEndVerification,
+        );
+
+        if (!verifyResult.passed) {
+          console.warn(`⚠️ Cycle-end verification failed: ${verifyResult.detail || verifyResult.error}`);
+          // Continue despite failure (soft handling for cycle-end)
+        } else {
+          console.log(`✅ Cycle-end verification passed: ${verifyResult.detail || 'OK'}`);
+        }
+      }
+    }
+
     cycle.isCompleted = true;
     ctx.tracker.lastUpdatedAt = createTimestamp();
 

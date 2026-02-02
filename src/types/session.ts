@@ -147,8 +147,14 @@ export interface CycleTracker {
   /** Has this entire cycle been completed? */
   isCompleted: boolean;
 
-  /** Runtime step records */
+  /** Cycle-start step records (executed at beginning of each cycle) */
+  cycleStartSteps?: StepTracker[];
+
+  /** Runtime step records for main cycle workflow */
   cycleSteps: CycleStepTracker[];
+
+  /** Cycle-end step records (executed at end of each cycle) */
+  cycleEndSteps?: StepTracker[];
 
   /** Loop statistics for loops within this cycle */
   loopStats?: LoopStats[];
