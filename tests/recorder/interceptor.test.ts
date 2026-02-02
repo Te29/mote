@@ -12,6 +12,7 @@ describe('ActionInterceptor', () => {
       addInitScript: vi.fn().mockResolvedValue(undefined),
       evaluate: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
+      off: vi.fn(),
       mainFrame: vi.fn().mockReturnValue({} as Frame),
     } as unknown as Page;
   });

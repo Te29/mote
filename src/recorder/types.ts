@@ -127,6 +127,8 @@ export type ActionDecision =
       description: string;
       generatePrompt: boolean;
       generateVerification: boolean;
+      generateWaitForReady: boolean;
+      waitForReadyDescription?: string;
     }
   | { action: 'discard' }
   | { action: 'edit'; newSelector: string }

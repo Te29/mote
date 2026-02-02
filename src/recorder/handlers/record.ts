@@ -19,8 +19,10 @@ import {
   promptVerification,
 } from '../prompts.js';
 import { saveCheckpoint, saveSessionPlan } from '../checkpoint.js';
-import { generateStepPrompt, generateVerificationScript } from '../llm-generator.js';
+import { generateStepPrompt, generateVerificationScript, generateWaitForReadyScript } from '../llm-generator.js';
 import { observeAndSavePage } from '../page-observer.js';
+import { observe } from '../../observe.js';
+import type { WaitForReadyConfig } from '../../types/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -64,14 +66,14 @@ export async function handleRecording(
     const decision = await promptAfterAction(action, ctx.presetDir);
 
     if (decision.action === 'keep') {
-      await saveKeptAction(ctx, state.section, action, decision.description, decision.generatePrompt);
+      await saveKeptAction(ctx, state.section, action, decision.description, decision.generatePrompt, decision.generateWaitForReady, decision.waitForReadyDescription);
     } else if (decision.action === 'edit') {
       // Edit selector - put action back with new selector
       action.selector = decision.newSelector;
       // Re-prompt for this action (one retry only)
       const retryDecision = await promptAfterAction(action, ctx.presetDir);
       if (retryDecision.action === 'keep') {
-        await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt);
+        await saveKeptAction(ctx, state.section, action, retryDecision.description, retryDecision.generatePrompt, retryDecision.generateWaitForReady, retryDecision.waitForReadyDescription);
       } else if (retryDecision.action === 'menu') {
         // User requested menu - show phase control
         const control = await promptPhaseControl(state.section, ctx.activeLoopId);
@@ -94,7 +96,7 @@ export async function handleRecording(
 
 /**
  * Save a kept action to the session plan.
- * Handles step creation, prompt generation, and checkpointing.
+ * Handles step creation, prompt generation, waitForReady generation, and checkpointing.
  */
 async function saveKeptAction(
   ctx: RecorderContext,
@@ -102,6 +104,8 @@ async function saveKeptAction(
   action: RecordedAction,
   description: string,
   generatePrompt: boolean,
+  generateWaitForReady: boolean = false,
+  waitForReadyDescription?: string,
 ): Promise<void> {
   ctx.stepCounter++;
   const stepId = generateStepId(ctx.stepCounter, description);
@@ -111,6 +115,8 @@ async function saveKeptAction(
     description,
     instruction: description,
     targetElementSelector: action.selector,
+    // Default to fast path (no LLM reasoning) - set true when prompt is generated
+    llmRequired: false,
   };
 
   // Handle type action - store value in instruction
@@ -118,8 +124,11 @@ async function saveKeptAction(
     step.instruction = `${description}. Enter value: "${action.value}"`;
   }
 
-  // Generate step prompt if requested
+  // Generate step prompt if requested - also enables LLM reasoning for this step
   if (generatePrompt) {
+    // When user wants a prompt, they want LLM to reason about this step
+    step.llmRequired = true;
+
     try {
       const promptContent = await generateStepPrompt(
         ctx.llmClient,
@@ -131,8 +140,34 @@ async function saveKeptAction(
       fs.writeFileSync(fullPromptPath, promptContent);
       step.promptRef = promptPath;
       console.log(`   📝 Generated prompt: ${promptPath}`);
+      console.log(`   🧠 LLM reasoning enabled for this step`);
     } catch (error) {
       console.warn(`   ⚠️ Failed to generate prompt: ${error}`);
+    }
+  }
+
+  // Generate waitForReady script if requested
+  if (generateWaitForReady && waitForReadyDescription) {
+    try {
+      // Observe current page to get elements for LLM analysis
+      console.log(`   👁️ Observing page for wait script generation...`);
+      const pageState = await observe(ctx.page);
+
+      const waitScript = await generateWaitForReadyScript(
+        ctx.llmClient,
+        waitForReadyDescription,
+        pageState.elements,
+      );
+      const waitForReady: WaitForReadyConfig = {
+        waitScript,
+        description: waitForReadyDescription,
+        timeout: 10000,
+        onTimeout: 'continue',
+      };
+      step.waitForReady = waitForReady;
+      console.log(`   ⏳ Generated waitForReady: "${waitForReadyDescription}"`);
+    } catch (error) {
+      console.warn(`   ⚠️ Failed to generate waitForReady script: ${error}`);
     }
   }
 

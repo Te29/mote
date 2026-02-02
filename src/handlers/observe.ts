@@ -8,6 +8,7 @@ import type {
   AgentStateObserve,
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
+import type { StepPlan } from '../types/actions.js';
 
 import {
   getProgress
@@ -86,8 +87,8 @@ export async function handleObserve(
 
   // Determine observation strategy (Targeted vs Full)
   let targetSelectors: string[] | undefined;
-  
-  // If we are following an execution path, look for the specific target
+  let currentStep: StepPlan | null = null;
+
   // If we are following an execution path, look for the specific target
   if (ctx.cyclePlan && ctx.runtime.executionPointer) {
     const ptr = ctx.runtime.executionPointer;
@@ -95,7 +96,6 @@ export async function handleObserve(
 
     if (unitIndex < ctx.cyclePlan.units.length) {
       const unit = ctx.cyclePlan.units[unitIndex];
-      let currentStep: any = null;
 
       if (unit.type === 'step') {
         currentStep = unit.step;
@@ -111,6 +111,35 @@ export async function handleObserve(
         targetSelectors = [currentStep.targetElementSelector];
         console.log(`🎯 Targeted Observation: Looking for "${currentStep.targetElementSelector}"`);
       }
+    }
+  }
+
+  // Execute waitForReady if defined for this step
+  if (currentStep?.waitForReady) {
+    const { waitScript, description, timeout = 10000, onTimeout = 'continue' } = currentStep.waitForReady;
+
+    console.log(`⏳ Waiting for page ready: ${description || 'custom script'}`);
+
+    try {
+      await Promise.race([
+        ctx.runtime.activePage.evaluate(waitScript),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('waitForReady timeout')), timeout)
+        )
+      ]);
+      console.log(`✓ Page ready`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️ waitForReady failed: ${msg}`);
+
+      if (onTimeout === 'fail') {
+        return {
+          phase: 'TERMINATED',
+          success: false,
+          message: `waitForReady failed for step "${currentStep.stepId}": ${msg}`,
+        };
+      }
+      // onTimeout: 'continue' - proceed with observation anyway
     }
   }
 

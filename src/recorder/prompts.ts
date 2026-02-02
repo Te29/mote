@@ -262,6 +262,26 @@ export async function promptAfterAction(
     return { action: 'menu' };
   }
 
+  const genWaitStr = await askQuestion(
+    `  Add pre-observe wait script? ${colors.dim}[y/N]:${colors.reset} `,
+  );
+  if (genWaitStr === '__SIGINT__') {
+    console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+    return { action: 'menu' };
+  }
+
+  let waitForReadyDescription: string | undefined;
+  if (genWaitStr.toLowerCase() === 'y') {
+    const waitDesc = await askQuestion(
+      `  Describe wait condition ${colors.dim}(e.g., "dashboard loads", "spinner disappears"):${colors.reset} `,
+    );
+    if (waitDesc === '__SIGINT__') {
+      console.log(`${colors.yellow}⏭ Interrupted - showing menu${colors.reset}`);
+      return { action: 'menu' };
+    }
+    waitForReadyDescription = waitDesc || 'Page content loads';
+  }
+
   console.log(`${colors.green}✓ Step saved${colors.reset}`);
 
   return {
@@ -269,6 +289,8 @@ export async function promptAfterAction(
     description: description || `${action.type} on ${action.elementInfo.tag}`,
     generatePrompt: genPromptStr.toLowerCase() === 'y',
     generateVerification: genVerifyStr.toLowerCase() === 'y',
+    generateWaitForReady: genWaitStr.toLowerCase() === 'y',
+    waitForReadyDescription,
   };
 }
 

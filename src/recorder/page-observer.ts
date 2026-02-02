@@ -6,6 +6,7 @@
 import type { Page } from 'playwright';
 import type { PageState } from '../types/index.js';
 import { observe } from '../observe.js';
+import { getPageContent } from '../browser.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -89,6 +90,13 @@ export async function observeAndSavePage(
 
   fs.writeFileSync(filePath, JSON.stringify(savedData, null, 2));
 
+  // Also save raw HTML for analysis
+  const htmlFilename = generateFilenameFromUrl(url, observedPages.size + 1, 'html');
+  const htmlFilePath = path.join(observationsDir, htmlFilename);
+  const pageContent = await getPageContent(page);
+  fs.writeFileSync(htmlFilePath, pageContent.html);
+  console.log(`   ✓ Saved raw HTML to ${path.relative(presetDir, htmlFilePath)}`);
+
   // Create observation metadata
   const observation: SavedPageObservation = {
     timestamp: savedData.timestamp,
@@ -126,9 +134,9 @@ export function clearObservedPages(): void {
 
 /**
  * Generate a safe filename from a URL.
- * Format: page-N-url-slug.json
+ * Format: page-N-url-slug.{ext}
  */
-function generateFilenameFromUrl(url: string, index: number): string {
+function generateFilenameFromUrl(url: string, index: number, ext: string = 'json'): string {
   try {
     const urlObj = new URL(url);
     let slug = urlObj.hostname + urlObj.pathname;
@@ -140,9 +148,9 @@ function generateFilenameFromUrl(url: string, index: number): string {
       .replace(/^-|-$/g, '')
       .slice(0, 50); // Max 50 chars
 
-    return `page-${index}-${slug}.json`;
+    return `page-${index}-${slug}.${ext}`;
   } catch {
     // Fallback for invalid URLs
-    return `page-${index}-unknown.json`;
+    return `page-${index}-unknown.${ext}`;
   }
 }

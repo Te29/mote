@@ -5,7 +5,8 @@
 
 import type OpenAI from 'openai';
 import type { RecordedAction } from './types.js';
-import type { Preset, SessionPlan } from '../types/index.js';
+import type { Preset, SessionPlan, ElementInfo } from '../types/index.js';
+import { getDefaultModel } from '../reason.js';
 
 // -----------------------------------------------------------------------------
 // STEP PROMPT GENERATION
@@ -48,7 +49,7 @@ Only output the prompt content, no explanations.`;
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getDefaultModel(),
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.7,
       max_tokens: 500,
@@ -166,7 +167,7 @@ Only output the script, no explanations or markdown.`;
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getDefaultModel(),
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
       max_tokens: 200,
@@ -238,7 +239,7 @@ Only output the script, no explanations or markdown.`;
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getDefaultModel(),
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
       max_tokens: 200,
@@ -256,6 +257,169 @@ Only output the script, no explanations or markdown.`;
     console.warn(`LLM call failed: ${error}`);
     return '() => true';
   }
+}
+
+// -----------------------------------------------------------------------------
+// WAIT FOR READY SCRIPT GENERATION
+// -----------------------------------------------------------------------------
+
+/**
+ * Format page elements for LLM analysis.
+ * Focuses on elements that might indicate loading state.
+ */
+function formatElementsForWaitAnalysis(elements: ElementInfo[]): string {
+  if (!elements || elements.length === 0) {
+    return 'No elements observed on page.';
+  }
+
+  // Filter and format elements - focus on potential loading indicators
+  const relevantElements = elements
+    .filter(el => {
+      const selector = el.selector.toLowerCase();
+      const text = el.text.toLowerCase();
+      const tag = el.tag.toLowerCase();
+
+      // Include elements that might be loading indicators
+      const loadingKeywords = ['load', 'spinner', 'skeleton', 'progress', 'loading', 'wait', 'pending'];
+      const hasLoadingHint = loadingKeywords.some(kw =>
+        selector.includes(kw) || text.includes(kw) ||
+        Object.values(el.attributes).some(v => v.toLowerCase().includes(kw))
+      );
+
+      // Include main content elements that indicate page is ready
+      const contentKeywords = ['content', 'main', 'container', 'wrapper', 'body', 'article', 'section'];
+      const isContentElement = contentKeywords.some(kw => selector.includes(kw));
+
+      // Include buttons, forms, and interactive elements (indicate page is interactive)
+      const isInteractive = ['button', 'input', 'select', 'a', 'form'].includes(tag);
+
+      return hasLoadingHint || isContentElement || isInteractive;
+    })
+    .slice(0, 30); // Limit to avoid token overflow
+
+  if (relevantElements.length === 0) {
+    // If no relevant elements found, include first 20 elements as context
+    return elements.slice(0, 20).map(el =>
+      `- [${el.tag}] selector="${el.selector}" text="${el.text.slice(0, 50)}"`
+    ).join('\n');
+  }
+
+  return relevantElements.map(el => {
+    const attrs = Object.entries(el.attributes)
+      .filter(([k]) => ['class', 'id', 'aria-label', 'role', 'data-testid'].includes(k))
+      .map(([k, v]) => `${k}="${v}"`)
+      .join(' ');
+    return `- [${el.tag}] selector="${el.selector}" text="${el.text.slice(0, 50)}" ${attrs}`.trim();
+  }).join('\n');
+}
+
+/**
+ * Generate a waitForReady script using LLM.
+ * Analyzes page elements to create meaningful wait conditions.
+ *
+ * @param client - OpenAI client
+ * @param description - Human description of what to wait for
+ * @param pageElements - Optional array of page elements for LLM analysis
+ */
+export async function generateWaitForReadyScript(
+  client: OpenAI,
+  description: string,
+  pageElements?: ElementInfo[],
+): Promise<string> {
+  const elementsContext = pageElements
+    ? formatElementsForWaitAnalysis(pageElements)
+    : 'No page elements provided.';
+
+  const prompt = `Generate a JavaScript async script for web automation that waits until the page is ready.
+The script runs in browser context and should resolve when the page/element is ready.
+
+Wait condition: ${description}
+
+Current page elements (analyze these to find real selectors):
+${elementsContext}
+
+Requirements:
+- Must be an async expression that resolves when ready (using Promise or MutationObserver)
+- Use REAL selectors from the page elements above - do NOT invent generic selectors like '.spinner'
+- If waiting for loading to finish, look for actual loading indicators in the elements list
+- If waiting for content to appear, use a selector that exists in the elements list
+- Should complete/resolve when the condition is met
+- No return value needed - completion signals readiness
+
+Patterns:
+- Wait for element to appear: new Promise(resolve => { if (document.querySelector('SELECTOR')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('SELECTOR')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })
+- Wait for element to disappear: new Promise(resolve => { const check = () => !document.querySelector('SELECTOR') ? resolve() : setTimeout(check, 100); check(); })
+- Wait for text content (native JS): new Promise(resolve => { const check = () => { const el = Array.from(document.querySelectorAll('a,button')).find(e => e.textContent.includes('TEXT')); el ? resolve() : setTimeout(check, 100); }; check(); })
+- Wait by href pattern: new Promise(resolve => { const check = () => document.querySelector('a[href*="/pattern/"]') ? resolve() : setTimeout(check, 100); check(); })
+
+Important:
+- Prefer GENERIC selectors over specific ones (e.g., use 'a[href*="/assessment/"]' instead of '[aria-label="Take test Specific Course Name"]')
+- Use href patterns (a[href*="..."]) when the URL structure is predictable
+- Use text matching with Array.find() for button/link text (not :has-text which is Playwright-only)
+- Avoid selectors with specific content names that would change between runs
+
+Only output the script, no explanations or markdown.`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: getDefaultModel(),
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+      max_tokens: 400,
+    });
+
+    const rawScript = response.choices[0]?.message?.content?.trim() || '';
+    const script = cleanLLMScript(rawScript);
+
+    // Basic validation - should start with 'new Promise' or contain 'Promise'
+    if (script.includes('Promise') || script.includes('await')) {
+      return script;
+    }
+
+    return getDefaultWaitForReadyScript(description, pageElements);
+  } catch (error) {
+    console.warn(`LLM call failed, using default script: ${error}`);
+    return getDefaultWaitForReadyScript(description, pageElements);
+  }
+}
+
+/**
+ * Default waitForReady script when LLM fails.
+ * Tries to find loading indicators from page elements.
+ */
+function getDefaultWaitForReadyScript(description: string, pageElements?: ElementInfo[]): string {
+  // Try to find actual loading indicators from page elements
+  if (pageElements && pageElements.length > 0) {
+    const loadingKeywords = ['spinner', 'loading', 'skeleton', 'progress', 'loader'];
+    const loadingElement = pageElements.find(el => {
+      const selector = el.selector.toLowerCase();
+      return loadingKeywords.some(kw => selector.includes(kw));
+    });
+
+    if (loadingElement) {
+      // Wait for loading indicator to disappear
+      return `new Promise(resolve => { const check = () => !document.querySelector('${loadingElement.selector}') ? resolve() : setTimeout(check, 100); check(); })`;
+    }
+
+    // If no loading indicator, wait for first interactive element to appear
+    const interactiveElement = pageElements.find(el =>
+      ['button', 'input', 'a'].includes(el.tag.toLowerCase())
+    );
+    if (interactiveElement) {
+      return `new Promise(resolve => { if (document.querySelector('${interactiveElement.selector}')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('${interactiveElement.selector}')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })`;
+    }
+  }
+
+  // Fallback: try to extract a selector hint from description
+  const lowerDesc = description.toLowerCase();
+  const selectorMatch = lowerDesc.match(/['"]([.#][^'"]+)['"]/);
+  if (selectorMatch) {
+    const selector = selectorMatch[1];
+    return `new Promise(resolve => { if (document.querySelector('${selector}')) return resolve(); const observer = new MutationObserver(() => { if (document.querySelector('${selector}')) { observer.disconnect(); resolve(); } }); observer.observe(document.body, { childList: true, subtree: true }); })`;
+  }
+
+  // Generic wait for page to be interactive
+  return `new Promise(resolve => { if (document.readyState === 'complete') return resolve(); window.addEventListener('load', resolve); })`;
 }
 
 // -----------------------------------------------------------------------------
@@ -292,7 +456,7 @@ Only output valid JSON, no explanations.`;
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: getDefaultModel(),
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.5,
       max_tokens: 2000,

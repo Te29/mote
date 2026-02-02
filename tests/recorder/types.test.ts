@@ -119,6 +119,7 @@ describe('Recorder Types', () => {
         description: 'Click submit button',
         generatePrompt: true,
         generateVerification: false,
+        generateWaitForReady: false,
       };
 
       expect(decision.action).toBe('keep');

@@ -159,6 +159,45 @@ export interface VerificationConfig {
 }
 
 /**
+ * Pre-observe wait configuration.
+ * Async script that resolves when page is ready for observation.
+ * Used to handle SPAs, lazy loading, and dynamic content.
+ */
+export interface WaitForReadyConfig {
+  /**
+   * Async JavaScript code to execute in browser context.
+   * Script should resolve/complete when page is ready.
+   * No return value needed - completion signals readiness.
+   *
+   * @example
+   * "new Promise(resolve => {
+   *   if (document.querySelector('.content-loaded')) return resolve();
+   *   const observer = new MutationObserver(() => {
+   *     if (document.querySelector('.content-loaded')) {
+   *       observer.disconnect();
+   *       resolve();
+   *     }
+   *   });
+   *   observer.observe(document.body, { childList: true, subtree: true });
+   * })"
+   */
+  waitScript: string;
+
+  /** Human-readable description of what we're waiting for */
+  description?: string;
+
+  /** Max time to wait in milliseconds (default: 10000) */
+  timeout?: number;
+
+  /**
+   * Strategy when script times out.
+   * - 'continue': Proceed with observation anyway (default)
+   * - 'fail': Terminate the step/cycle
+   */
+  onTimeout?: 'continue' | 'fail';
+}
+
+/**
  * Reference to a prompt file for step-level customization.
  * Simple relative path from the preset directory.
  *
@@ -234,6 +273,13 @@ export interface StepPlan {
    * @example "./prompts/fill-form.md"
    */
   promptRef?: StepPromptRef;
+
+  /**
+   * Pre-observe wait configuration.
+   * Ensures page is ready before observation for this step.
+   * Useful for SPAs, lazy loading, or pages with dynamic content.
+   */
+  waitForReady?: WaitForReadyConfig;
 }
 
 /** 
