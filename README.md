@@ -1,7 +1,5 @@
 # Mote
 
----
-
 Mote is a lightweight browser automation agent framework powered by AI, designed to turn human workflows into reliable, repeatable automation pipelines.
 
 Rather than relying on end-to-end black-box autonomy, Mote adopts a methodology-first agent design. It combines scripted steps with AI-assisted decisions through a clear lifecycle:
@@ -10,8 +8,6 @@ Rather than relying on end-to-end black-box autonomy, Mote adopts a methodology-
 The system also supports varying levels of human oversight, allowing LLMs to be orchestrated along predefined code paths.
 
 Mote is a practical and approachable starting point for experiencing what it means to *give AI a pair of hands*.
-
----
 
 ## Features
 
@@ -41,8 +37,6 @@ Mote is a practical and approachable starting point for experiencing what it mea
 - Work with multiple AI providers
 - Provide trace logs for easy debugging
 - Optimize token usage
-
----
 
 ## Quick Start
 
@@ -78,8 +72,6 @@ LLM_API_KEY=sk-your-key-here
 # Run
 npm start
 ```
-
----
 
 ## 📚 Learn More
 
@@ -250,8 +242,6 @@ mote/
 *(Content to be added)*
 
 </details>
-
----
 
 ## 📄 License
 
