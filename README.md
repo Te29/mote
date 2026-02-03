@@ -1,15 +1,22 @@
 # Mote
 
-Mote is a lightweight browser automation agent framework powered by AI, designed to turn human workflows into reliable, repeatable automation pipelines.
+> A lightweight browser automation agent framework powered by AI
 
-Rather than relying on end-to-end black-box autonomy, Mote adopts a methodology-first agent design. It combines scripted steps with AI-assisted decisions through a clear lifecycle:
-**record → normalize → execute → validate**.The system also supports varying levels of human oversight, allowing LLMs to be orchestrated along predefined code paths.
+Mote is designed to turn human workflows into reliable, repeatable automation pipelines. Rather than relying on end-to-end black-box autonomy, Mote adopts a **methodology-first agent design**, combining scripted steps with AI-assisted decisions through a clear lifecycle:
 
-Mote is a practical and approachable starting point for experiencing what it means to *give AI a pair of hands*.
+```
+record → normalize → execute → validate
+```
+
+The system supports varying levels of human oversight, allowing LLMs to be orchestrated along predefined code paths. Mote is a practical and approachable starting point for experiencing what it means to **give AI a pair of hands**.
 
 ## Features
 
-**Workflow & Automation**
+<table>
+<tr>
+<td width="50%">
+
+### 🔄 Workflow & Automation
 
 - Capture and reuse human workflows
 - Execute browser automation with LLM assistance
@@ -18,17 +25,20 @@ Mote is a practical and approachable starting point for experiencing what it mea
 - Optimize for repetitive tasks
 - Choose different automation styles
 
-**Human Oversight & Control**
+### 👁️ Human Oversight & Control
 
 - Allow human oversight and real-time intervention
 - Maintain session state and progress, with pause/resume checkpoints
 
-**Web Interaction & Adaptability**
+</td>
+<td width="50%">
+
+### 🌐 Web Interaction & Adaptability
 
 - Adapt to website changes
 - Handle complex modern websites
 
-**Developer Experience & Integrations**
+### 🛠️ Developer Experience & Integrations
 
 - Provide clear CLI interface
 - Provide a developer-friendly, configurable environment
@@ -36,21 +46,33 @@ Mote is a practical and approachable starting point for experiencing what it mea
 - Provide trace logs for easy debugging
 - Optimize token usage
 
+</td>
+</tr>
+</table>
+
 ## Quick Start
 
+### 1. Installation
+
+Clone the repository and install dependencies:
+
 ```bash
-# Clone and install
 git clone https://github.com/Te29/mote.git
 cd mote/mote
 npm install
+```
 
-# Configure your LLM
+### 2. Configuration
+
+Create your environment configuration:
+
+```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your preferred LLM provider:
+Edit `.env` and choose your LLM provider:
 
-**Option A: Local (Free & Private)**
+#### Option A: Local (Free & Private)
 ```env
 LLM_PROVIDER=ollama
 LLM_MODEL=llama3.2
@@ -58,7 +80,7 @@ LLM_BASE_URL=http://localhost:11434/v1
 LLM_API_KEY=ollama
 ```
 
-**Option B: Cloud (OpenAI)**
+#### Option B: Cloud (OpenAI)
 ```env
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-4o
@@ -66,10 +88,15 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=sk-your-key-here
 ```
 
+### 3. Run
+
+Start Mote:
+
 ```bash
-# Run
 npm start
 ```
+
+That's it! Mote will launch a browser and guide you through creating your first automation workflow.
 
 ## Learn More
 
