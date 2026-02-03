@@ -1,11 +1,8 @@
 # Mote
 
-Mote is a lightweight browser automation agent framework powered by AI, designed to turn human workflows into reliable, repeatable automation pipelines.
-
-Rather than relying on end-to-end black-box autonomy, Mote adopts a methodology-first agent design. It combines scripted steps with AI-assisted decisions through a clear lifecycle:
-**record → normalize → execute → validate**.The system also supports varying levels of human oversight, allowing LLMs to be orchestrated along predefined code paths.
-
-Mote is a practical and approachable starting point for experiencing what it means to *give AI a pair of hands*.
+Mote is a lightweight AI-driven browser automation agent that transforms human workflows into repeatable pipelines.
+Using a clear lifecycle—record → normalize → execute → validate—it combines scripted steps with AI-assisted decisions.
+The system supports multiple human oversight levels and structured session, cycle, and step management, making it suitable for complex or repetitive tasks.
 
 ## Features
 
