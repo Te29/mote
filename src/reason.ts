@@ -52,7 +52,7 @@ config();
 // -----------------------------------------------------------------------------
 
 const ActionSchema = z.object({
-  type: z.enum(['click', 'type', 'scroll', 'scroll_to_element', 'navigate', 'wait', 'hover', 'select', 'checkbox', 'drag', 'multi_click']),
+  type: z.enum(['click', 'type', 'scroll', 'navigate', 'wait', 'hover', 'select', 'checkbox', 'drag', 'multi_click']),
   elementId: z.string().optional(), // Index or selector for single actions
   elementIds: z.array(z.string()).optional(), // Multiple indices for multi_click
   text: z.string().optional(),

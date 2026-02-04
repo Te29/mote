@@ -9,11 +9,84 @@ import type {
 } from '../types/state-machine.js';
 import type { AgentContext } from '../types/context.js';
 import type { StepResult } from '../types/results.js';
+import type { Action, StepPlan, PlanUnit } from '../types/actions.js';
 import { createTimestamp } from '../types/session.js';
 import { executeAction } from '../act/index.js';
 import { think } from '../reason.js';
 import { shouldIntervene, requestIntervention, processInterventionControl } from '../interaction.js';
 import { logVariable } from '../utils/debug.js';
+
+// -----------------------------------------------------------------------------
+// POINTER ADVANCEMENT HELPERS
+// -----------------------------------------------------------------------------
+
+/**
+ * Actions that are considered "auxiliary" and should NOT advance the execution pointer.
+ * These are preparatory actions (like scrolling) that don't complete a step.
+ * Note: scroll_to_element was removed - all element-targeting actions auto-scroll.
+ */
+const AUXILIARY_ACTIONS: Action['type'][] = ['scroll', 'wait'];
+
+/**
+ * Get the current step from the execution pointer.
+ * Returns null if no blueprint or pointer is invalid.
+ */
+function getCurrentStepFromPointer(ctx: AgentContext): StepPlan | null {
+  if (!ctx.cyclePlan || ctx.runtime.executionPointer.length === 0) {
+    return null;
+  }
+
+  const ptr = ctx.runtime.executionPointer;
+  const unitIndex = ptr[0];
+
+  if (unitIndex >= ctx.cyclePlan.units.length) {
+    return null;
+  }
+
+  const unit: PlanUnit = ctx.cyclePlan.units[unitIndex];
+
+  if (unit.type === 'step') {
+    return unit.step;
+  } else if (unit.type === 'loop' && ptr.length >= 2) {
+    const loopStepIndex = ptr[1];
+    if (loopStepIndex < unit.loop.steps.length) {
+      return unit.loop.steps[loopStepIndex];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check if the executed action matches what the current step expects.
+ * This prevents auxiliary actions (scroll, wait) from advancing the pointer.
+ *
+ * @param executedAction - The action that was just executed
+ * @param currentStep - The current step from the blueprint
+ * @returns true if the action completes the step, false otherwise
+ */
+function actionCompletesStep(executedAction: Action, currentStep: StepPlan | null): boolean {
+  // If no current step, allow advancement (fallback behavior)
+  if (!currentStep) {
+    return true;
+  }
+
+  // Auxiliary actions never complete a step
+  if (AUXILIARY_ACTIONS.includes(executedAction.type)) {
+    return false;
+  }
+
+  // If step has a specific action type defined, check for match
+  if (currentStep.action?.type) {
+    // The executed action type must match the expected action type
+    if (currentStep.action.type !== executedAction.type) {
+      return false;
+    }
+  }
+
+  // Action completes the step
+  return true;
+}
 
 // -----------------------------------------------------------------------------
 // ACT
@@ -231,28 +304,42 @@ export async function handleAct(
     ctx.interventionMetrics.consecutiveFailures = 0;
 
     // Increment execution pointer if we are following a blueprint path
+    // IMPORTANT: Only advance if the action actually completes the current step
     if (ctx.cyclePlan && ctx.runtime.executionPointer.length > 0) {
        const ptr = ctx.runtime.executionPointer;
+       const currentStep = getCurrentStepFromPointer(ctx);
 
-       if (ptr.length === 1) {
-         // Top-level linear path: increment unit index
-         const currentIdx = ptr[0];
-         if (currentIdx < ctx.cyclePlan.units.length) {
-           const unit = ctx.cyclePlan.units[currentIdx];
-           // Only auto-increment for Step units
-           // Loop units are handled differently (condition checking in REASON)
-           if (unit.type === 'step') {
-             ptr[0]++;
-           }
+       // Check if this action completes the step (not an auxiliary action like scroll)
+       const completesStep = actionCompletesStep(state.action, currentStep);
+
+       if (!completesStep) {
+         // Auxiliary action (scroll, wait) - don't advance pointer
+         const verbose = process.env.VERBOSE === 'true';
+         if (verbose) {
+           console.log(`   ℹ️ Auxiliary action "${state.action.type}" - pointer not advanced`);
          }
-       } else if (ptr.length === 2) {
-         // Inside a loop: increment step index within loop
-         const unitIndex = ptr[0];
-         const unit = ctx.cyclePlan.units[unitIndex];
-         if (unit?.type === 'loop') {
-           ptr[1]++;
-           // Note: Loop condition checking (whether to continue/exit) happens in REASON
-           // when ptr[1] >= unit.loop.steps.length
+       } else {
+         // Primary action - advance the pointer
+         if (ptr.length === 1) {
+           // Top-level linear path: increment unit index
+           const currentIdx = ptr[0];
+           if (currentIdx < ctx.cyclePlan.units.length) {
+             const unit = ctx.cyclePlan.units[currentIdx];
+             // Only auto-increment for Step units
+             // Loop units are handled differently (condition checking in REASON)
+             if (unit.type === 'step') {
+               ptr[0]++;
+             }
+           }
+         } else if (ptr.length === 2) {
+           // Inside a loop: increment step index within loop
+           const unitIndex = ptr[0];
+           const unit = ctx.cyclePlan.units[unitIndex];
+           if (unit?.type === 'loop') {
+             ptr[1]++;
+             // Note: Loop condition checking (whether to continue/exit) happens in REASON
+             // when ptr[1] >= unit.loop.steps.length
+           }
          }
        }
     }

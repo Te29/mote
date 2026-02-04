@@ -6,15 +6,16 @@
   "cycleStartSteps": [
     {
       "stepId": "step-1-choose-quiz-to-take",
-      "description": "click the Take test button",
-      "instruction": "Click on the first visible 'Take test' button to start a quiz. Use the click action directly - scrolling is not needed as it will be done automatically.",
-      "targetElementSelector": "{desc:\"the first button with take test text\"}",
+      "description": "Select an incomplete quiz to take or retake",
+      "instruction": "Select a quiz that needs to be completed. Priority: 1) Click 'Take test' for untouched quizzes, 2) Click 'Retake test' for quizzes showing 'Started' status (failed attempts), 3) Skip quizzes showing 'Completed' status.",
+      "targetElementSelector": "{desc:\"test button for an incomplete quiz - either Take test or Retake test with Started status\"}",
       "llmRequired": true,
+      "promptRef": "./prompts/step-1-choose-quiz.md",
       "waitForReady": {
-        "waitScript": "new Promise((resolve, reject) => { let attempts = 0; const check = () => { attempts++; const allButtons = Array.from(document.querySelectorAll('button, a')); const btn = allButtons.find(el => { const text = (el.textContent || '').toLowerCase(); const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase(); const combined = text + ' ' + ariaLabel; return combined.includes('take') && (combined.includes('test') || combined.includes('quiz') || combined.includes('assessment')); }); if (btn) { console.log(`[waitForReady] Found button after ${attempts} attempts:`, btn.textContent?.trim() || btn.getAttribute('aria-label')); resolve(); } else if (attempts > 300) { console.warn(`[waitForReady] Timeout after ${attempts} attempts. Found ${allButtons.length} buttons. Sample:`, allButtons.slice(0, 10).map(b => ({ text: b.textContent?.trim(), aria: b.getAttribute('aria-label') }))); reject(new Error('Button not found after 300 attempts')); } else { setTimeout(check, 100); } }; check(); })",
+        "waitScript": "new Promise((resolve, reject) => { let attempts = 0; const check = () => { attempts++; const allButtons = Array.from(document.querySelectorAll('button, a')); const testBtn = allButtons.find(el => { const text = (el.textContent || '').toLowerCase(); const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase(); const combined = text + ' ' + ariaLabel; return (combined.includes('take') || combined.includes('retake')) && (combined.includes('test') || combined.includes('quiz') || combined.includes('assessment')); }); if (testBtn) { console.log(`[waitForReady] Found test button after ${attempts} attempts:`, testBtn.textContent?.trim()); resolve(); } else if (attempts > 300) { console.warn(`[waitForReady] Timeout after ${attempts} attempts`); reject(new Error('No test button found after 300 attempts')); } else { setTimeout(check, 100); } }; check(); })",
         "timeout": 30000,
         "onTimeout": "continue",
-        "description": "Wait for 'Take Test' button to load"
+        "description": "Wait for test buttons (Take test or Retake test) to load"
       }
     }
   ],

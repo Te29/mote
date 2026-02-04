@@ -65,15 +65,14 @@ export type { CycleStrategy } from './types/index.js';
  * Adding a new WebAction requires adding documentation here (compile-time enforced).
  */
 export const ACTION_DOCS: Record<WebAction, string> = {
-  click: 'Click one element. Requires "elementId". Use for buttons, links, and elements that may trigger navigation or DOM changes.',
-  multi_click: 'Click multiple checkboxes/toggles in one step. Requires "elementIds" array. ONLY for form controls that do NOT trigger navigation.',
-  type: 'Type text into input. Requires "elementId" and "text"',
-  hover: 'Hover over element to trigger dropdowns, tooltips, or reveal hidden content. Requires "elementId"',
-  select: 'Select option from <select> dropdown. Requires "elementId" and "text" (the option value or label)',
-  checkbox: 'Toggle checkbox/switch. Requires "elementId", optional "text" ("check"|"uncheck"|"toggle", default: toggle)',
-  drag: 'Drag element to another element. Requires "elementId" (source) and "text" (target element index)',
-  scroll_to_element: 'Scroll element into view. Requires "elementId". PREFERRED for [OFFSCREEN] elements.',
-  scroll: 'Blind scroll page. Requires "text" ("up"|"down"). Only for exploring when target not yet visible.',
+  click: 'Click one element. Requires "elementId". Use for buttons, links, and elements that may trigger navigation or DOM changes. Auto-scrolls into view.',
+  multi_click: 'Click multiple checkboxes/toggles in one step. Requires "elementIds" array. ONLY for form controls that do NOT trigger navigation. Auto-scrolls into view.',
+  type: 'Type text into input. Requires "elementId" and "text". Auto-scrolls into view.',
+  hover: 'Hover over element to trigger dropdowns, tooltips, or reveal hidden content. Requires "elementId". Auto-scrolls into view.',
+  select: 'Select option from <select> dropdown. Requires "elementId" and "text" (the option value or label). Auto-scrolls into view.',
+  checkbox: 'Toggle checkbox/switch. Requires "elementId", optional "text" ("check"|"uncheck"|"toggle", default: toggle). Auto-scrolls into view.',
+  drag: 'Drag element to another element. Requires "elementId" (source) and "text" (target element index). Auto-scrolls into view.',
+  scroll: 'Blind scroll page. Requires "text" ("up"|"down"). Only for exploring when target element is not yet visible in element list.',
   navigate: 'Go to URL. Requires "text" (the URL)',
   wait: 'Wait for page to update',
 };
@@ -157,7 +156,7 @@ REPLAN: When current approach isn't working:
   executionRules: `[EXECUTION RULES]
 - Never click elements already in desired state (checked="true" means done)
 - Never repeat the same action on same elements - check [PREVIOUS ACTIONS]
-- Use scroll_to_element for [OFFSCREEN] elements
+- Do NOT scroll before clicking - all actions auto-scroll elements into view
 - One action at a time - describe only THIS action in reason field
 
 [AVAILABLE ACTIONS]
@@ -416,10 +415,7 @@ function formatSingleElement(el: ElementInfo): string {
       line += ` [${attr}="${el.attributes[attr]}"]`;
     }
   }
-  // Mark elements that are outside the viewport
-  if (el.offscreen) {
-    line += ` [OFFSCREEN - scroll to see]`;
-  }
+  // Note: OFFSCREEN tag removed - all actions auto-scroll elements into view
   return line;
 }
 

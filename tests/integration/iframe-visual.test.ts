@@ -371,22 +371,23 @@ describe.skip('Iframe Visual Integration', () => {
     // PAGE-LEVEL ACTIONS (Steps 15-17)
     // ---------------------------------------------------------------
 
-    await runStep(15, 'Scroll to element on main page', async () => {
+    await runStep(15, 'Click element on main page (auto-scrolls)', async () => {
       const bottomBtn = observation.elements.find(
         (el: any) => el.attributes?.id === 'main-bottom-btn',
       );
-      
-      const scrollAction: Action = {
-        type: 'scroll_to_element',
+
+      // Note: scroll_to_element was removed - click now auto-scrolls elements into view
+      const clickAction: Action = {
+        type: 'click',
         elementId: String(bottomBtn?.index),
-        reason: 'Scroll main page to bottom button',
+        reason: 'Click bottom button (auto-scrolls into view)',
       };
-      const result = await executeAction(page, scrollAction, observation.elements);
+      const result = await executeAction(page, clickAction, observation.elements);
       expect(result.success).toBe(true);
 
       const isVisible = await page.isVisible('#test-finish-marker');
       expect(isVisible).toBe(true);
-      await tick(15); 
+      await tick(15);
     });
 
     await runStep(16, 'Wait for page idle', async () => {

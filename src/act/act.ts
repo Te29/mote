@@ -19,12 +19,64 @@
 //
 // =============================================================================
 
-import type { Page, Download, Frame } from 'playwright';
+import type { Page, Download, Frame, Locator } from 'playwright';
 import type { Action, ElementInfo, ExecuteResult, DownloadInfo } from '../types/index.js';
 import * as path from 'path';
 import * as os from 'os';
 import { getElementLocator, getElementContext, randomDelay, humanDelay, humanMouseMove, humanType } from './helpers.js';
 import { verifyOrResolve } from './element-resolution.js';
+
+// -----------------------------------------------------------------------------
+// AUTO-SCROLL HELPER
+// -----------------------------------------------------------------------------
+
+/**
+ * Proactively scroll an element into view before performing actions.
+ * This prevents the LLM from needing to decide between scroll vs click,
+ * eliminating the "scroll-then-click" pattern that breaks tracker sync.
+ *
+ * @param locator - Playwright locator for the element
+ * @param verbose - Whether to log the scroll action
+ * @returns true if scroll was performed, false if element was already visible
+ */
+async function ensureElementVisible(locator: Locator, verbose: boolean): Promise<boolean> {
+  try {
+    // Check if element is already in viewport
+    const isVisible = await locator.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const viewHeight = window.innerHeight || document.documentElement.clientHeight;
+      const viewWidth = window.innerWidth || document.documentElement.clientWidth;
+
+      // Element is considered visible if at least partially in viewport
+      return (
+        rect.top < viewHeight &&
+        rect.bottom > 0 &&
+        rect.left < viewWidth &&
+        rect.right > 0
+      );
+    }).catch(() => false);
+
+    if (!isVisible) {
+      if (verbose) {
+        console.log(`   📜 Auto-scrolling element into view...`);
+      }
+      await locator.scrollIntoViewIfNeeded({ timeout: 3000 });
+      // Brief settle time after scroll
+      await new Promise(resolve => setTimeout(resolve, 150));
+      return true;
+    }
+
+    return false;
+  } catch {
+    // If check fails, try to scroll anyway (element might still be valid)
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 2000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
 
 // -----------------------------------------------------------------------------
 // MAIN EXECUTE FUNCTION
@@ -59,9 +111,6 @@ export async function executeAction(
 
       case 'scroll':
         return await executeScroll(page, action, elements, verbose);
-
-      case 'scroll_to_element':
-        return await executeScrollToElement(page, action, elements, verbose);
 
       case 'navigate':
         return await executeNavigate(page, action, verbose);
@@ -158,10 +207,14 @@ async function executeClick(
 
   try {
     // Human-like click sequence:
-    // 1. Move mouse to element with natural movement
-    // 2. Brief pause before clicking (like a human aiming)
-    // 3. Click with slight position randomness
-    // 4. Handle new tabs/downloads
+    // 1. Auto-scroll element into view (prevents scroll-then-click pattern)
+    // 2. Move mouse to element with natural movement
+    // 3. Brief pause before clicking (like a human aiming)
+    // 4. Click with slight position randomness
+    // 5. Handle new tabs/downloads
+
+    // Proactively scroll element into view
+    await ensureElementVisible(locator, verbose);
 
     // Move mouse to element first (human-like)
     await humanMouseMove(page, resolvedElement);
@@ -381,6 +434,9 @@ async function executeType(
   const locator = getElementLocator(page, resolvedElement);
 
   try {
+    // Proactively scroll element into view
+    await ensureElementVisible(locator, verbose);
+
     // Human-like typing sequence
     await humanMouseMove(page, resolvedElement);
 
@@ -523,56 +579,6 @@ async function executeScroll(
   await humanDelay(page, 400, 700);
 
   return { success: true };
-}
-
-// -----------------------------------------------------------------------------
-// SCROLL TO ELEMENT ACTION
-// -----------------------------------------------------------------------------
-
-/**
- * Scroll a specific element into view using scrollIntoViewIfNeeded.
- */
-async function executeScrollToElement(
-  page: Page,
-  action: Action,
-  elements: ElementInfo[],
-  verbose: boolean,
-): Promise<ExecuteResult> {
-  if (!action.elementId) {
-    return {
-      success: false,
-      error: 'scroll_to_element action requires an elementId (element index)',
-    };
-  }
-
-  const index = parseInt(action.elementId, 10);
-  const element = elements.find((el) => el.index === index);
-
-  if (!element) {
-    return {
-      success: false,
-      error: `Element [${index}] not found. Available: 1-${elements.length}`,
-    };
-  }
-
-  if (verbose) {
-    console.log(`📜 Scrolling to element: [${index}] ${element.tag} "${element.text}"`);
-  }
-
-  const locator = getElementLocator(page, element);
-
-  try {
-    await locator.scrollIntoViewIfNeeded({ timeout: 3000 });
-    await humanDelay(page, 300, 500);
-
-    return { success: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Scroll to element failed';
-    return {
-      success: false,
-      error: `Failed to scroll element [${index}] into view: ${message}`,
-    };
-  }
 }
 
 // -----------------------------------------------------------------------------
@@ -751,6 +757,9 @@ async function executeSelect(
   const locator = getElementLocator(page, element);
 
   try {
+    // Proactively scroll element into view
+    await ensureElementVisible(locator, verbose);
+
     await humanMouseMove(page, element);
 
     await locator.selectOption(action.text);
@@ -801,6 +810,9 @@ async function executeCheckbox(
   const locator = getElementLocator(page, element);
 
   try {
+    // Proactively scroll element into view
+    await ensureElementVisible(locator, verbose);
+
     await humanMouseMove(page, element);
 
     if (desiredState === 'check') {
@@ -1057,10 +1069,13 @@ async function executeMultiClick(
     const locator = getElementLocator(page, resolvedElement);
 
     try {
+      // Proactively scroll element into view
+      await ensureElementVisible(locator, verbose);
+
       await humanMouseMove(page, resolvedElement);
 
       await locator.click({ timeout: 5000 });
-      await page.waitForTimeout(500); 
+      await page.waitForTimeout(500);
       successCount++;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Click failed';
