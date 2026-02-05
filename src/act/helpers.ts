@@ -73,8 +73,12 @@ export async function humanDelay(page: Page, min = 100, max = 300): Promise<void
 export async function humanMouseMove(page: Page, element: ElementInfo): Promise<void> {
   const locator = getElementLocator(page, element);
 
-  // boundingBox returns coordinates relative to the main frame viewport
-  // This works correctly for page.mouse.move which also uses viewport coordinates
+  // Single scroll point for all actions. Scroll before boundingBox so the
+  // coordinates are viewport-relative and the mouse move lands on screen.
+  // Playwright's subsequent click/check/etc. see the element already visible
+  // and skip their internal scroll, eliminating the tick-tick pattern.
+  await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+
   const box = await locator.boundingBox();
 
   if (!box) return;
