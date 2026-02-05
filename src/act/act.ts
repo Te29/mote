@@ -156,8 +156,11 @@ async function executeClick(
   const locator = getElementLocator(page, resolvedElement);
 
   try {
-    // Move mouse to element (scrolls into view + natural movement)
-    await humanMouseMove(page, resolvedElement);
+    // Move mouse to element (scrolls into view + natural movement).
+    // Returns pre-computed click coordinates so we can use page.mouse.click()
+    // below — avoiding Playwright's locator.click() auto-scroll retry loop
+    // that causes visible scroll oscillation on navigation-triggering clicks.
+    const clickPos = await humanMouseMove(page, resolvedElement);
     await drainScrollLog(page, 'act-after-mousemove');
 
     // Set up listener for new tabs BEFORE clicking
@@ -182,30 +185,13 @@ async function executeClick(
       });
     });
 
-    // Click using locator (works for both main frame and iframe elements)
-    const offsetX = randomDelay(-3, 3);
-    const offsetY = randomDelay(-2, 2);
-    
-    try {
-      await locator.click({
-        timeout: 5000,
-        position: { x: offsetX, y: offsetY },
-      });
-    } catch (firstError) {
-      const msg = firstError instanceof Error ? firstError.message : String(firstError);
-      
-      // If timeout or not visible, try scrolling explicitly and retrying
-      if (msg.includes('Timeout') || msg.includes('visible') || msg.includes('outside the bounds')) {
-         if (verbose) console.log(`   ⚠️ Click failed (${msg}). Attempting explicit scroll & retry...`);
-         
-         await locator.scrollIntoViewIfNeeded({ timeout: 2000 });
-         await page.waitForTimeout(500);
-         
-         // Retry click with new listeners if needed (omitted for brevity, relying on standard retry)
-         await locator.click({ timeout: 5000 });
-      } else {
-         throw firstError; // Re-throw if not a scrollable issue (e.g. obscured)
-      }
+    // Click at pre-computed coordinates — direct mouse event dispatched at
+    // the position humanMouseMove already landed on.  No auto-scroll, no retry.
+    if (clickPos) {
+      await page.mouse.click(clickPos.x, clickPos.y);
+    } else {
+      // Fallback: bounding box was unavailable (hidden element etc.)
+      await locator.click({ timeout: 5000 });
     }
     await drainScrollLog(page, 'act-after-click');
 
@@ -995,9 +981,13 @@ async function executeMultiClick(
     const locator = getElementLocator(page, resolvedElement);
 
     try {
-      await humanMouseMove(page, resolvedElement);
+      const clickPos = await humanMouseMove(page, resolvedElement);
 
-      await locator.click({ timeout: 5000 });
+      if (clickPos) {
+        await page.mouse.click(clickPos.x, clickPos.y);
+      } else {
+        await locator.click({ timeout: 5000 });
+      }
       await page.waitForTimeout(500);
       successCount++;
     } catch (error) {

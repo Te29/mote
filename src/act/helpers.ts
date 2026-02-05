@@ -69,19 +69,21 @@ export async function humanDelay(page: Page, min = 100, max = 300): Promise<void
  * Move mouse to element with human-like curve before clicking.
  * Uses small random offset to avoid clicking exact center every time.
  * Now supports iframes via Locator.boundingBox().
+ *
+ * Returns the computed click coordinates so callers can use page.mouse.click()
+ * directly — avoiding Playwright's locator.click() auto-scroll retry loop that
+ * causes visible scroll oscillation on navigation-triggering clicks.
  */
-export async function humanMouseMove(page: Page, element: ElementInfo): Promise<void> {
+export async function humanMouseMove(page: Page, element: ElementInfo): Promise<{ x: number; y: number } | null> {
   const locator = getElementLocator(page, element);
 
   // Single scroll point for all actions. Scroll before boundingBox so the
   // coordinates are viewport-relative and the mouse move lands on screen.
-  // Playwright's subsequent click/check/etc. see the element already visible
-  // and skip their internal scroll, eliminating the tick-tick pattern.
   await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
 
   const box = await locator.boundingBox();
 
-  if (!box) return;
+  if (!box) return null;
 
   // Calculate a point near center with slight randomness
   const offsetX = randomDelay(-5, 5);
@@ -94,6 +96,8 @@ export async function humanMouseMove(page: Page, element: ElementInfo): Promise<
 
   // Brief pause after moving, like a human would
   await humanDelay(page, 50, 150);
+
+  return { x: targetX, y: targetY };
 }
 
 /**
