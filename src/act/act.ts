@@ -25,7 +25,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { getElementLocator, getElementContext, randomDelay, humanDelay, humanMouseMove, humanType } from './helpers.js';
 import { verifyOrResolve } from './element-resolution.js';
-import { drainScrollLog } from '../observe.js';
 
 // -----------------------------------------------------------------------------
 // MAIN EXECUTE FUNCTION
@@ -150,7 +149,6 @@ async function executeClick(
     };
   }
   resolvedElement = result.element;
-  await drainScrollLog(page, 'act-after-verify');
 
   // Get the locator (handles iframe context automatically)
   const locator = getElementLocator(page, resolvedElement);
@@ -161,7 +159,6 @@ async function executeClick(
     // below — avoiding Playwright's locator.click() auto-scroll retry loop
     // that causes visible scroll oscillation on navigation-triggering clicks.
     const clickPos = await humanMouseMove(page, resolvedElement);
-    await drainScrollLog(page, 'act-after-mousemove');
 
     // Set up listener for new tabs BEFORE clicking
     const context = page.context();
@@ -193,7 +190,6 @@ async function executeClick(
       // Fallback: bounding box was unavailable (hidden element etc.)
       await locator.click({ timeout: 5000 });
     }
-    await drainScrollLog(page, 'act-after-click');
 
     // Check if a new tab was opened
     if (!newPage) newPage = await newPagePromise;
