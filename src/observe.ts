@@ -123,6 +123,43 @@ turndown.addRule('simplifyImages', {
 // MAIN OBSERVE FUNCTION
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// SCROLL DIAGNOSTIC HELPERS (temporary — remove after scroll source is found)
+// -----------------------------------------------------------------------------
+
+/**
+ * Drain the in-page scroll event log and print any recorded events.
+ * Each entry has { t: timestamp, y: scrollY, x: scrollX }.
+ * Exported so act.ts can also drain at its checkpoints.
+ */
+export async function drainScrollLog(page: Page, label: string): Promise<void> {
+  const log = await page.evaluate(() => {
+    const log = (window as any).__moteScrollLog || [];
+    (window as any).__moteScrollLog = [];
+    return log;
+  });
+  if (log.length > 0) {
+    console.log(`[SCROLL ${label}] ${log.length} events:`, JSON.stringify(log));
+  }
+}
+
+/** Inject scroll event listener (idempotent — safe to call every cycle). */
+async function injectScrollTracker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    if (!(window as any).__moteScrollWatching) {
+      (window as any).__moteScrollWatching = true;
+      (window as any).__moteScrollLog = [];
+      window.addEventListener('scroll', () => {
+        ((window as any).__moteScrollLog as Array<{ t: number; y: number; x: number }>).push({
+          t: Date.now(),
+          y: window.scrollY,
+          x: window.scrollX,
+        });
+      }, { capture: true, passive: true });
+    }
+  });
+}
+
 /**
  * Observe the current page - extract content and interactive elements.
  * This is the main function called by the agent loop.
@@ -139,6 +176,9 @@ export async function observe(
   page: Page,
   targetSelectors?: string[],
 ): Promise<PageState> {
+  // [DIAG] Ensure scroll event tracker is injected (idempotent)
+  await injectScrollTracker(page);
+
   // Wait for page to be in a stable state before observing
   // This prevents observing half-loaded pages with missing elements
   try {
@@ -146,11 +186,13 @@ export async function observe(
   } catch {
     // Timeout is okay, page might already be loaded
   }
+  await drainScrollLog(page, 'obs-after-load');
 
   // Additional wait for dynamic content and scripts to execute
   // Many modern web apps need time for JavaScript to render content
   // Increased to 5000ms for slower dynamic content
   await page.waitForTimeout(5000);
+  await drainScrollLog(page, 'obs-after-timeout');
 
   // Try to wait for network to be idle (indicates AJAX/dynamic content loaded)
   try {
@@ -158,6 +200,7 @@ export async function observe(
   } catch {
     // Timeout is okay, some pages have persistent connections
   }
+  await drainScrollLog(page, 'obs-after-networkidle');
 
   // Scroll the page to load lazy-loaded content.
   // Only run once per URL — repeated observations of the same page gain nothing.
@@ -212,6 +255,7 @@ export async function observe(
   } else {
     console.log(`[SWEEP] Skipped — already swept this URL`);
   }
+  await drainScrollLog(page, 'obs-after-sweep');
 
   // Get page info using browser module
   const { url, title } = await getPageContent(page);
@@ -219,6 +263,7 @@ export async function observe(
   // Find interactive elements
   // If targetSelectors is provided, we prioritize finding them
   const elements = await extractInteractiveElements(page, targetSelectors);
+  await drainScrollLog(page, 'obs-after-extract');
 
   console.log(`[DEBUG OBSERVE] Found ${elements.length} interactive elements`);
   if (elements.length === 0) {
@@ -249,9 +294,11 @@ export async function observe(
 
     markdown = extractAndConvert(cleanHtml, url);
   }
+  await drainScrollLog(page, 'obs-after-markdown');
 
   // Check for captcha/anti-bot challenges
   const captcha = await detectCaptcha(page);
+  await drainScrollLog(page, 'obs-after-captcha');
 
   const result: PageState = {
     url,
