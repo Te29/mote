@@ -79,6 +79,9 @@ const MAX_MARKDOWN_LENGTH = 8000;
 /** Minimum content length to consider Readability extraction successful */
 const MIN_READABILITY_CONTENT_LENGTH = 200;
 
+/** URL of the last page we ran the lazy-load sweep on. Skip the sweep if unchanged. */
+let lastSweptUrl: string | null = null;
+
 // -----------------------------------------------------------------------------
 // TURNDOWN CONFIGURATION
 // -----------------------------------------------------------------------------
@@ -156,42 +159,45 @@ export async function observe(
     // Timeout is okay, some pages have persistent connections
   }
 
-  // Scroll the page to load lazy-loaded content
-  // Many modern pages load content as you scroll (infinite scroll, lazy loading)
-  try {
-    const hasScrollSpace = await page.evaluate(() => {
-      return document.documentElement.scrollHeight > window.innerHeight;
-    });
-
-    if (hasScrollSpace) {
-      console.log('[DEBUG OBSERVE] Page has scroll space, scrolling to load all content...');
-
-      // Scroll to bottom in steps to trigger lazy loading
-      await page.evaluate(async () => {
-        const scrollStep = 500;
-        const scrollDelay = 100;
-
-        const totalHeight = document.documentElement.scrollHeight;
-        let currentPosition = 0;
-
-        while (currentPosition < totalHeight) {
-          window.scrollBy(0, scrollStep);
-          currentPosition += scrollStep;
-          await new Promise(resolve => setTimeout(resolve, scrollDelay));
-        }
-
-        // Scroll back to top
-        window.scrollTo(0, 0);
+  // Scroll the page to load lazy-loaded content.
+  // Only run once per URL — repeated observations of the same page gain nothing.
+  const currentUrl = page.url();
+  if (currentUrl !== lastSweptUrl) {
+    try {
+      const hasScrollSpace = await page.evaluate(() => {
+        return document.documentElement.scrollHeight > window.innerHeight;
       });
 
-      // Wait a bit for any content that loaded during scrolling
-      await page.waitForTimeout(1000);
+      if (hasScrollSpace) {
+        // Hide during sweep so the user doesn't see the scroll-down-and-back
+        await page.evaluate(async () => {
+          const scrollStep = 500;
+          const scrollDelay = 100;
 
-      console.log('[DEBUG OBSERVE] Scrolling complete, content loaded');
+          document.documentElement.style.opacity = '0';
+
+          const totalHeight = document.documentElement.scrollHeight;
+          let currentPosition = 0;
+
+          while (currentPosition < totalHeight) {
+            window.scrollBy(0, scrollStep);
+            currentPosition += scrollStep;
+            await new Promise(resolve => setTimeout(resolve, scrollDelay));
+          }
+
+          // Scroll back to top and restore visibility
+          window.scrollTo(0, 0);
+          document.documentElement.style.opacity = '';
+        });
+
+        // Wait for any content that loaded during scrolling
+        await page.waitForTimeout(1000);
+      }
+
+      lastSweptUrl = currentUrl;
+    } catch (error) {
+      console.warn('[DEBUG OBSERVE] Scrolling failed (non-fatal):', error);
     }
-  } catch (error) {
-    console.warn('[DEBUG OBSERVE] Scrolling failed (non-fatal):', error);
-    // Continue even if scrolling fails
   }
 
   // Get page info using browser module
