@@ -345,6 +345,17 @@ export async function handleAct(
              ptr[1]++;
              // Note: Loop condition checking (whether to continue/exit) happens in REASON
              // when ptr[1] >= unit.loop.steps.length
+
+             // Handle exitLoop flag - LLM signals to break out of loop early
+             if (state.action.exitLoop) {
+               const loopId = unit.loop.loopId;
+               if (ctx.runtime.loopStates[loopId]) {
+                 ctx.runtime.loopStates[loopId].exitRequested = true;
+                 // Skip remaining steps by setting pointer to end of loop
+                 ptr[1] = unit.loop.steps.length;
+                 console.log(`🚪 Exit loop requested - skipping remaining steps in loop [${loopId}]`);
+               }
+             }
            }
          }
        }

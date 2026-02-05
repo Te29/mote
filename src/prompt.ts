@@ -176,7 +176,11 @@ Execution (default - take action):
 {"resultType":"ACTION","thinking":"why this action...","action":{"type":"...","elementId":"...","text":"...","reason":"..."}}
 
 For multi_click only (multiple checkboxes/toggles):
-{"resultType":"ACTION","thinking":"...","action":{"type":"multi_click","elementIds":["6","8"],"reason":"..."}}`
+{"resultType":"ACTION","thinking":"...","action":{"type":"multi_click","elementIds":["6","8"],"reason":"..."}}
+
+Special flags (optional):
+- "exitLoop": true - Add when current loop task is complete (e.g., quiz done, no more items). This exits the loop immediately.
+- "stepComplete": false - Add when step needs multiple actions (e.g., ranking with Move buttons). Keeps focus on same step.`
 };
 
 /**

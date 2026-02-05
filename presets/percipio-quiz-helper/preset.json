@@ -7,5 +7,6 @@
     "context": {}
   },
   "startUrl": "",
-  "sessionPlanRef": "./session-plan.json"
+  "sessionPlanRef": "./session-plan.json",
+  "engagementMode": "autonomous"
 }

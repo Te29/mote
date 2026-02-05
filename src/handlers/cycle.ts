@@ -269,6 +269,22 @@ export async function handleCycleStart(
         if (result.newPage) {
           ctx.runtime.activePage = result.newPage;
         }
+
+        // Check if this is an auxiliary action (scroll, wait) that shouldn't complete the step
+        const AUXILIARY_ACTIONS = ['scroll', 'wait'];
+        if (AUXILIARY_ACTIONS.includes(actionToExecute.type)) {
+          console.log(`  ℹ️ Auxiliary action "${actionToExecute.type}" - retrying step`);
+          // Record in history but don't mark step complete - retry
+          ctx.history.push({
+            step: ctx.history.length + 1,
+            action: actionToExecute,
+            success,
+            error,
+            timestamp: createTimestamp(),
+          });
+          i--; // Retry this step
+          continue;
+        }
       }
 
       // Record step in tracker
@@ -486,6 +502,22 @@ export async function handleCycleEnd(
 
           if (result.newPage) {
             ctx.runtime.activePage = result.newPage;
+          }
+
+          // Check if this is an auxiliary action (scroll, wait) that shouldn't complete the step
+          const AUXILIARY_ACTIONS = ['scroll', 'wait'];
+          if (AUXILIARY_ACTIONS.includes(actionToExecute.type)) {
+            console.log(`  ℹ️ Auxiliary action "${actionToExecute.type}" - retrying step`);
+            // Record in history but don't mark step complete - retry
+            ctx.history.push({
+              step: ctx.history.length + 1,
+              action: actionToExecute,
+              success,
+              error,
+              timestamp: createTimestamp(),
+            });
+            i--; // Retry this step
+            continue;
           }
         }
 

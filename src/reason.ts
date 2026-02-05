@@ -58,6 +58,7 @@ const ActionSchema = z.object({
   text: z.string().optional(),
   reason: z.string(),
   stepComplete: z.boolean().optional(), // When false, don't advance execution pointer (for multi-action steps like ranking)
+  exitLoop: z.boolean().optional(), // When true, exit the current loop after this action (e.g., quiz done, no more questions)
 });
 
 const PlanResultSchema = z.object({

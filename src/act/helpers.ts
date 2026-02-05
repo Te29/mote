@@ -72,11 +72,11 @@ export async function humanDelay(page: Page, min = 100, max = 300): Promise<void
  */
 export async function humanMouseMove(page: Page, element: ElementInfo): Promise<void> {
   const locator = getElementLocator(page, element);
-  
+
   // boundingBox returns coordinates relative to the main frame viewport
   // This works correctly for page.mouse.move which also uses viewport coordinates
   const box = await locator.boundingBox();
-  
+
   if (!box) return;
 
   // Calculate a point near center with slight randomness

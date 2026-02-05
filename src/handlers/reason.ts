@@ -150,9 +150,18 @@ export async function handleReason(
           console.log(`🔄 Loop [${loopId}] iteration ${currentIteration} complete.`);
 
           let shouldContinue = false;
+          let exitLoopRequested = false;
 
+          // 0. Check if LLM requested early exit via exitLoop flag
+          if (ctx.runtime.loopStates[loopId].exitRequested) {
+            console.log(`🚪 Loop exit requested by LLM (exitLoop flag) - exiting immediately`);
+            exitLoopRequested = true;
+            shouldContinue = false;
+            // Clear the flag for potential future re-entry
+            ctx.runtime.loopStates[loopId].exitRequested = false;
+          }
           // 1. Check Fixed Iterations
-          if (unit.loop.iterations) {
+          else if (unit.loop.iterations) {
             if (currentIteration < unit.loop.iterations) {
               shouldContinue = true;
             } else {
@@ -161,7 +170,8 @@ export async function handleReason(
           } 
           
           // 2. Check Dynamic Condition (script-based verification)
-          if (unit.loop.loopCondition) {
+          // Skip if exitLoop was requested - we already decided to exit
+          if (unit.loop.loopCondition && !exitLoopRequested) {
             const cond = unit.loop.loopCondition;
 
             // Safety Break

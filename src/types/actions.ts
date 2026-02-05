@@ -64,6 +64,16 @@ export interface Action {
    * Default: true (action completes the step)
    */
   stepComplete?: boolean;
+
+  /**
+   * Whether to exit the current loop after this action.
+   * When true, the loop will exit immediately after this action completes,
+   * skipping any remaining steps in the current iteration.
+   * Useful when the LLM detects the loop's task is complete (e.g., quiz done).
+   *
+   * Default: false (continue normal loop execution)
+   */
+  exitLoop?: boolean;
 }
 
 // -----------------------------------------------------------------------------

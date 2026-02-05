@@ -214,6 +214,7 @@ export interface AgentRuntimeState {
       iteration: number;
       conditionsMet: string[]; // Track which conditions passed
       startedAt: string; // Loop start timestamp
+      exitRequested?: boolean; // Set by LLM via exitLoop flag to break out early
     }
   >;
 
