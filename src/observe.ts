@@ -163,31 +163,42 @@ export async function observe(
   // Only run once per URL — repeated observations of the same page gain nothing.
   const currentUrl = page.url();
   if (currentUrl !== lastSweptUrl) {
+    console.log(`[SWEEP] Running lazy-load sweep for: ${currentUrl}`);
     try {
       const hasScrollSpace = await page.evaluate(() => {
         return document.documentElement.scrollHeight > window.innerHeight;
       });
 
       if (hasScrollSpace) {
-        // Hide during sweep so the user doesn't see the scroll-down-and-back
         await page.evaluate(async () => {
           const scrollStep = 500;
           const scrollDelay = 100;
 
-          document.documentElement.style.opacity = '0';
+          // Force instant scrolling — if the page has scroll-behavior: smooth
+          // via CSS, scrollTo/scrollBy animate asynchronously and would outlive
+          // any visibility hide, leaking frames to the user.
+          const prevBehavior = getComputedStyle(document.documentElement).scrollBehavior;
+          document.documentElement.style.scrollBehavior = 'auto';
+
+          // Fixed overlay covers the viewport regardless of page CSS.
+          // Opacity on <html> loses to transitions or !important; this doesn't.
+          const overlay = document.createElement('div');
+          overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;background:white;pointer-events:none';
+          document.body.prepend(overlay);
 
           const totalHeight = document.documentElement.scrollHeight;
           let currentPosition = 0;
 
           while (currentPosition < totalHeight) {
-            window.scrollBy(0, scrollStep);
+            window.scrollBy({ top: scrollStep, behavior: 'auto' });
             currentPosition += scrollStep;
             await new Promise(resolve => setTimeout(resolve, scrollDelay));
           }
 
-          // Scroll back to top and restore visibility
-          window.scrollTo(0, 0);
-          document.documentElement.style.opacity = '';
+          // Scroll back to top instantly, then tear down
+          window.scrollTo({ top: 0, behavior: 'auto' });
+          overlay.remove();
+          document.documentElement.style.scrollBehavior = prevBehavior === 'auto' ? '' : prevBehavior;
         });
 
         // Wait for any content that loaded during scrolling
@@ -196,8 +207,10 @@ export async function observe(
 
       lastSweptUrl = currentUrl;
     } catch (error) {
-      console.warn('[DEBUG OBSERVE] Scrolling failed (non-fatal):', error);
+      console.warn('[SWEEP] Failed (non-fatal):', error);
     }
+  } else {
+    console.log(`[SWEEP] Skipped — already swept this URL`);
   }
 
   // Get page info using browser module
