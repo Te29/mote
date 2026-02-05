@@ -57,6 +57,7 @@ const ActionSchema = z.object({
   elementIds: z.array(z.string()).optional(), // Multiple indices for multi_click
   text: z.string().optional(),
   reason: z.string(),
+  stepComplete: z.boolean().optional(), // When false, don't advance execution pointer (for multi-action steps like ranking)
 });
 
 const PlanResultSchema = z.object({

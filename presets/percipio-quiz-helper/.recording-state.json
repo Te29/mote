@@ -40,12 +40,12 @@
             "loopId": "loop-1770041570328",
             "steps": [
               {
-                "stepId": "step-3-click-all-the-checkboxes-repre",
-                "description": "click all the checkboxes represent the corrct answer ",
-                "instruction": "click all the checkboxes represent the corrct answer ",
-                "targetElementSelector": "{desc:\"checkbox presents the option for correct answer\"}",
+                "stepId": "step-3-answer-question",
+                "description": "Answer the quiz question (radio, checkbox, or ranking)",
+                "instruction": "Answer the current question. For radio: click one answer. For checkbox: multi_click all correct answers. For ranking: click Move Up/Down buttons one at a time until order is correct.",
+                "targetElementSelector": "{desc:\"answer option or move button for quiz question\"}",
                 "llmRequired": true,
-                "promptRef": "./prompts/step-3-click-all-the-checkboxes-repre.md"
+                "promptRef": "./prompts/step-3-answer-question.md"
               },
               {
                 "stepId": "step-4-submit-the-answer",

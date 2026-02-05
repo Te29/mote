@@ -1,13 +1,13 @@
 {
-  "goalSummary": "Complete quiz by selecting correct answers",
-  "cycleDescription": "One iteration of the main workflow",
+  "goalSummary": "Complete ALL quizzes on the page. Each cycle completes ONE quiz, then returns to quiz selection. Goal is ONLY achieved when ALL courses show 'Completed' status - NO courses should show 'Start' or 'Started' status.",
+  "cycleDescription": "Complete one quiz and return to selection page. Repeat for each remaining quiz.",
   "numberOfCycles": -1,
   "setupSteps": [],
   "cycleStartSteps": [
     {
       "stepId": "step-1-choose-quiz-to-take",
       "description": "Select an incomplete quiz to take or retake",
-      "instruction": "Select a quiz that needs to be completed. Priority: 1) Click 'Take test' for untouched quizzes, 2) Click 'Retake test' for quizzes showing 'Started' status (failed attempts), 3) Skip quizzes showing 'Completed' status.",
+      "instruction": "Select a quiz that needs to be completed. Priority: 1) Click 'Take test' for untouched quizzes, 2) Click 'Retake test' for quizzes showing 'Started' status. ONLY declare GOAL_SUCCESS when ALL courses show 'Completed' - no 'Start' or 'Started' status remaining.",
       "targetElementSelector": "{desc:\"test button for an incomplete quiz - either Take test or Retake test with Started status\"}",
       "llmRequired": true,
       "promptRef": "./prompts/step-1-choose-quiz.md",
@@ -43,24 +43,24 @@
           "loopId": "loop-1770041570328",
           "loopCondition": {
             "verification": {
-              "script": "(() => !Array.from(document.querySelectorAll('button')).some(btn => btn.textContent?.toLowerCase().includes('done')))()",
-              "description": "Continue until 'Done' button appears"
+              "script": "(() => { const buttons = Array.from(document.querySelectorAll('button')); const hasDone = buttons.some(btn => btn.textContent?.toLowerCase().includes('done')); const hasSubmit = buttons.some(btn => btn.textContent?.toLowerCase().includes('submit')); const hasQuizQuestions = document.querySelectorAll('input[type=\"radio\"], input[type=\"checkbox\"]').length > 0 || buttons.some(btn => btn.textContent?.includes('Move')); const onQuizPage = hasSubmit || hasQuizQuestions; return !hasDone && onQuizPage; })()",
+              "description": "Continue while on quiz page (has Submit/questions) and no Done button. Exit when Done appears OR no longer on quiz page."
             },
             "maxIterations": 100
           },
           "steps": [
             {
-              "stepId": "step-3-click-all-the-checkboxes-repre",
-              "description": "click all the checkboxes representing the correct answer",
-              "instruction": "click all the checkboxes representing the correct answer",
-              "targetElementSelector": "{desc:\"checkbox presents the option for correct answer\"}",
+              "stepId": "step-3-answer-question",
+              "description": "Answer the quiz question (radio, checkbox, or ranking)",
+              "instruction": "Answer the current question. For radio: click one answer. For checkbox: multi_click all correct answers. For ranking: click Move Up/Down buttons one at a time until order is correct.",
+              "targetElementSelector": "{desc:\"answer option or move button for quiz question\"}",
               "llmRequired": true,
-              "promptRef": "./prompts/step-3-click-all-the-checkboxes-repre.md",
+              "promptRef": "./prompts/step-3-answer-question.md",
               "waitForReady": {
-                "waitScript": "new Promise(resolve => { const check = () => { const question = document.querySelector('[class*=\"question\"], [class*=\"Question\"], h1, h2'); const options = document.querySelectorAll('input[type=\"radio\"], input[type=\"checkbox\"], [role=\"radio\"], [role=\"checkbox\"]'); if (question && options.length > 0) resolve(); else setTimeout(check, 100); }; check(); })",
+                "waitScript": "new Promise(resolve => { const check = () => { const question = document.querySelector('[class*=\"question\"], [class*=\"Question\"], h1, h2'); const options = document.querySelectorAll('input[type=\"radio\"], input[type=\"checkbox\"], [role=\"radio\"], [role=\"checkbox\"], button'); const hasAnswerOptions = options.length > 0 || Array.from(document.querySelectorAll('button')).some(b => b.textContent?.includes('Move')); if (question && hasAnswerOptions) resolve(); else setTimeout(check, 100); }; check(); })",
                 "timeout": 10000,
                 "onTimeout": "continue",
-                "description": "Wait for question and answer options to load"
+                "description": "Wait for question and answer options (radio/checkbox/ranking) to load"
               }
             },
             {
@@ -97,8 +97,8 @@
   "cycleEndSteps": [
     {
       "stepId": "step-6-go-back-to-quiz-selection",
-      "description": "click Back to track button",
-      "instruction": "Click the 'Back to track' button to return to quiz selection. Use the click action directly.",
+      "description": "Return to quiz selection to continue with next quiz",
+      "instruction": "Click 'Back to track' to return to quiz selection page. This cycle completed ONE quiz - more quizzes may remain. Do NOT declare goal success yet.",
       "targetElementSelector": "[aria-label=\"Back to track\"]",
       "llmRequired": true
     }

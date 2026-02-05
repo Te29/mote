@@ -45,6 +45,19 @@ Once you identify the correct button following the priority above:
 - Use the `click` action on that button's element index
 - Do NOT scroll first - scrolling is automatic
 
+## GOAL COMPLETION - CRITICAL
+
+**The goal is to complete ALL quizzes, not just one.**
+
+- After each quiz, you return to this selection page
+- Keep selecting and completing quizzes until NONE remain
+- **ONLY declare GOAL_SUCCESS when:**
+  - ALL courses show "Completed" status
+  - NO courses show "Start" or "Started" status
+  - NO "Take test" buttons visible for any course
+
+**DO NOT declare GOAL_SUCCESS after completing just ONE quiz!**
+
 ## Example Decision Flow
 
 ```
@@ -56,3 +69,19 @@ Card 3: "Team Leadership" - No status shown - Has "Take test" -> CLICK THIS (pri
 ```
 
 In this example, click the "Take test" button for Card 3 because priority 1 (untouched) beats priority 2 (failed).
+
+## Example: When to Declare GOAL_SUCCESS
+
+```
+Scan the page for course cards...
+
+Card 1: "Project Management" - Shows "Completed" - Has "Retake test" -> SKIP (already passed)
+Card 2: "Business Ethics" - Shows "Completed" - Has "Retake test" -> SKIP (already passed)
+Card 3: "Team Leadership" - Shows "Completed" - Has "Retake test" -> SKIP (already passed)
+
+No "Take test" buttons found.
+No "Started" status quizzes found.
+ALL quizzes are "Completed".
+
+-> NOW declare GOAL_SUCCESS: "All quizzes completed successfully."
+```

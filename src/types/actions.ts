@@ -54,6 +54,16 @@ export interface Action {
 
   /** Human-readable explanation of why this action is taken */
   reason: string;
+
+  /**
+   * Whether this action completes the current step.
+   * When false, the execution pointer does NOT advance after this action.
+   * Useful for multi-action steps like ranking questions where multiple clicks
+   * are needed before the step is complete.
+   *
+   * Default: true (action completes the step)
+   */
+  stepComplete?: boolean;
 }
 
 // -----------------------------------------------------------------------------

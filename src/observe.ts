@@ -76,6 +76,9 @@ import { getPageContent } from './browser.js';
 /** Maximum markdown content length before truncation (~2000 tokens) */
 const MAX_MARKDOWN_LENGTH = 8000;
 
+/** Minimum content length to consider Readability extraction successful */
+const MIN_READABILITY_CONTENT_LENGTH = 200;
+
 // -----------------------------------------------------------------------------
 // TURNDOWN CONFIGURATION
 // -----------------------------------------------------------------------------
@@ -383,51 +386,54 @@ async function detectCaptcha(page: Page): Promise<CaptchaInfo> {
 /**
  * Extract main content from HTML and convert to Markdown.
  *
+ * For web automation, we prioritize DIRECT content extraction over Readability.
+ * Readability.js is designed for "reader mode" (articles, blogs) but fails on:
+ * - Web applications (forms, quizzes, dashboards)
+ * - Interactive UI with labels and instructions
+ * - Dynamic content rendered by JavaScript
+ *
+ * Our strategy:
+ * 1. PRIMARY: Direct extraction with noise removal (simplifyHtml)
+ * 2. OPTIONAL: Use Readability only for article-like pages (lots of paragraphs)
+ *
  * @param html - Raw HTML string
  * @param url - Page URL (needed by Readability)
  * @returns Clean Markdown content
  */
 function extractAndConvert(html: string, url: string): string {
-  // ---------------------------------------------------------------------------
-  // Step 1: Create a DOM environment
-  // ---------------------------------------------------------------------------
-  // Readability needs a DOM to work with.
-  // In a browser, you'd use `document`. In Node.js, we use JSDOM.
-  // JSDOM creates a "fake" browser environment.
-
   const dom = new JSDOM(html, { url });
   const document = dom.window.document;
 
   // ---------------------------------------------------------------------------
-  // Step 2: Try Readability extraction
+  // Detect page type: Is this an article or a web app?
   // ---------------------------------------------------------------------------
-  // Readability is Mozilla's algorithm for extracting the "main" content
-  // from a web page. It's what powers Firefox's Reader Mode.
-  //
-  // It works by:
-  // 1. Looking for content-heavy elements (lots of text, few links)
-  // 2. Removing navigation, sidebars, ads, footers
-  // 3. Returning just the "article" content
-  //
-  // This is AMAZING for news articles, blogs, documentation
-  // But it can fail on:
-  // - Search results pages (no single "article")
-  // - Web apps (content is dynamic)
-  // - Login pages (mostly forms)
-  // When Readability fails: call simplifyHtml() which removes common
-  // noise elements manually. It's not as smart as Readability but better than raw HTML.
-
-  const reader = new Readability(document.cloneNode(true) as Document);
-  const article = reader.parse();
+  const paragraphCount = document.querySelectorAll('p').length;
+  const formElementCount = document.querySelectorAll('input, select, textarea, button, [role="checkbox"], [role="radio"]').length;
+  const isLikelyArticle = paragraphCount > 5 && formElementCount < 3;
 
   let cleanHtml: string;
 
-  if (article && article.content) {
-    // Readability found main content
-    cleanHtml = article.content;
+  if (isLikelyArticle) {
+    // Article-like page: Try Readability first
+    const reader = new Readability(document.cloneNode(true) as Document);
+    const article = reader.parse();
+
+    if (article && article.content) {
+      const tempMarkdown = turndown.turndown(article.content);
+      const textOnly = tempMarkdown.replace(/\[.*?\]/g, '').replace(/\s+/g, ' ').trim();
+
+      if (textOnly.length >= MIN_READABILITY_CONTENT_LENGTH) {
+        cleanHtml = article.content;
+      } else {
+        // Readability extracted too little - fall back
+        cleanHtml = simplifyHtml(document);
+      }
+    } else {
+      cleanHtml = simplifyHtml(document);
+    }
   } else {
-    // Readability failed - fall back to body content
-    // This happens on search pages, apps, etc.
+    // Web app / interactive page: Use direct extraction (skip Readability)
+    // This is the PRIMARY path for automation tasks
     cleanHtml = simplifyHtml(document);
   }
 
@@ -493,7 +499,101 @@ function simplifyHtml(document: Document): string {
     clone.querySelectorAll(selector).forEach((el) => el.remove());
   }
 
+  // Also extract visible text from form-related elements that might not be in innerHTML
+  // This helps capture quiz questions and answer labels
+  const formContent = extractFormContext(document);
+  if (formContent) {
+    // Prepend form content as it's likely the main focus
+    return `<div class="form-context">${formContent}</div>\n${clone.innerHTML}`;
+  }
+
   return clone.innerHTML;
+}
+
+/**
+ * Extract text content from form-related elements.
+ * This captures quiz questions, labels, and answer options that might be
+ * missed by standard HTML extraction (e.g., in aria-labels or custom elements).
+ */
+function extractFormContext(document: Document): string {
+  const parts: string[] = [];
+
+  // Look for question text in common patterns
+  const questionSelectors = [
+    '[class*="question" i]',
+    '[class*="Question"]',
+    '[class*="prompt" i]',
+    '[role="heading"]',
+    'fieldset > legend',
+    '[aria-describedby]',
+    'main h1, main h2, main h3',
+    '[id*="question" i] h1, [id*="question" i] h2, [id*="question" i] h3',
+    '[class*="assessment" i] h1, [class*="assessment" i] h2',
+  ];
+
+  for (const selector of questionSelectors) {
+    try {
+      document.querySelectorAll(selector).forEach((el) => {
+        const text = (el as HTMLElement).innerText?.trim();
+        if (text && text.length > 10 && text.length < 500) {
+          parts.push(`<h2>${text}</h2>`);
+        }
+      });
+    } catch {
+      // Selector might be invalid, continue
+    }
+  }
+
+  // Extract labels for form inputs (especially checkboxes/radios)
+  const labels: string[] = [];
+  document.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach((input) => {
+    const inputEl = input as HTMLInputElement;
+
+    // Try multiple ways to get the label text
+    let labelText = '';
+
+    // 1. Check aria-label
+    labelText = inputEl.getAttribute('aria-label') || '';
+
+    // 2. Check associated label element
+    if (!labelText && inputEl.id) {
+      const label = document.querySelector(`label[for="${inputEl.id}"]`);
+      if (label) {
+        labelText = (label as HTMLElement).innerText?.trim() || '';
+      }
+    }
+
+    // 3. Check parent label
+    if (!labelText) {
+      const parentLabel = inputEl.closest('label');
+      if (parentLabel) {
+        labelText = (parentLabel as HTMLElement).innerText?.trim() || '';
+      }
+    }
+
+    // 4. Check sibling text
+    if (!labelText && inputEl.parentElement) {
+      const siblings = inputEl.parentElement.childNodes;
+      for (const sibling of Array.from(siblings)) {
+        if (sibling.nodeType === 3 && sibling.textContent?.trim()) { // Text node
+          labelText = sibling.textContent.trim();
+          break;
+        }
+      }
+    }
+
+    if (labelText && labelText.length > 3) {
+      const inputType = inputEl.type;
+      const checked = inputEl.checked ? '☑' : '☐';
+      labels.push(`<li>${checked} ${labelText}</li>`);
+    }
+  });
+
+  if (labels.length > 0) {
+    parts.push(`<ul>${labels.join('\n')}</ul>`);
+  }
+
+  return parts.join('\n');
 }
 
 /**
@@ -598,19 +698,62 @@ export async function extractInteractiveElements(
  * Clones the DOM while flattening Shadow DOM for Readability/Turndown processing.
  */
 const EXTRACT_CLEAN_HTML_SCRIPT = `(function() {
-  function isVisible(elem) {
+  // Check if element is effectively visible
+  // More lenient than before - allows opacity:0 if element has rect size
+  // (common in React apps for accessible but visually hidden inputs)
+  function isEffectivelyVisible(elem) {
     var style = window.getComputedStyle(elem);
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    if (style.display === 'none') return false;
+    if (style.visibility === 'hidden') return false;
+
+    // Allow opacity:0 if the element has size (accessibility pattern)
+    var rect = elem.getBoundingClientRect();
+    if (style.opacity === '0' && rect.width === 0 && rect.height === 0) return false;
+
+    return true;
   }
 
-  function cloneWithShadow(node) {
+  // Check if element is form/question related (always include these)
+  function isFormRelated(elem) {
+    var tag = elem.tagName.toLowerCase();
+    if (['form', 'fieldset', 'legend', 'label'].includes(tag)) return true;
+    if (elem.getAttribute('role') === 'form') return true;
+    if (elem.getAttribute('role') === 'group') return true;
+
+    // Handle className - can be string or SVGAnimatedString (for SVG elements)
+    var className = '';
+    if (typeof elem.className === 'string') {
+      className = elem.className.toLowerCase();
+    } else if (elem.className && elem.className.baseVal) {
+      className = elem.className.baseVal.toLowerCase();
+    }
+    if (className.includes('question') || className.includes('answer') ||
+        className.includes('quiz') || className.includes('assessment') ||
+        className.includes('option') || className.includes('choice')) return true;
+
+    var id = (elem.id || '').toLowerCase();
+    if (id.includes('question') || id.includes('quiz')) return true;
+
+    return false;
+  }
+
+  function cloneWithShadow(node, depth) {
+    depth = depth || 0;
+
     if (node.nodeType === Node.TEXT_NODE) {
       return node.cloneNode(true);
     }
 
     if (node.nodeType === Node.ELEMENT_NODE) {
       var el = node;
-      if (!isVisible(el)) return null;
+
+      // Form-related elements are always included
+      var forceInclude = isFormRelated(el);
+
+      // Skip only truly hidden elements (unless form-related)
+      if (!forceInclude && !isEffectivelyVisible(el)) {
+        return null;
+      }
 
       var clone = el.cloneNode(false);
 
@@ -618,14 +761,14 @@ const EXTRACT_CLEAN_HTML_SCRIPT = `(function() {
         var shadowContainer = document.createElement('div');
         shadowContainer.setAttribute('data-mote-shadow-root', 'true');
         Array.from(el.shadowRoot.childNodes).forEach(function(child) {
-          var shadowChild = cloneWithShadow(child);
+          var shadowChild = cloneWithShadow(child, depth + 1);
           if (shadowChild) shadowContainer.appendChild(shadowChild);
         });
         clone.appendChild(shadowContainer);
       }
 
       Array.from(el.childNodes).forEach(function(child) {
-        var childClone = cloneWithShadow(child);
+        var childClone = cloneWithShadow(child, depth + 1);
         if (childClone) clone.appendChild(childClone);
       });
 
@@ -635,11 +778,61 @@ const EXTRACT_CLEAN_HTML_SCRIPT = `(function() {
     return null;
   }
 
+  // Also extract question text directly (in case it's in unusual containers)
+  function extractQuestionContext() {
+    var parts = [];
+
+    // Look for headings in main content
+    var mainEl = document.querySelector('main, [role="main"], #main, #content, .main-content');
+    var searchRoot = mainEl || document.body;
+
+    // Find question/prompt text
+    var headings = searchRoot.querySelectorAll('h1, h2, h3, [class*="question" i], [class*="prompt" i]');
+    headings.forEach(function(h) {
+      var text = h.innerText ? h.innerText.trim() : '';
+      if (text && text.length > 10 && text.length < 1000 && !text.includes('©')) {
+        parts.push('<h2>' + text + '</h2>');
+      }
+    });
+
+    // Find labels for checkboxes/radios
+    var inputs = searchRoot.querySelectorAll('input[type="checkbox"], input[type="radio"]');
+    if (inputs.length > 0) {
+      parts.push('<ul class="answer-options">');
+      inputs.forEach(function(input) {
+        var labelText = input.getAttribute('aria-label') || '';
+        if (!labelText && input.id) {
+          var label = document.querySelector('label[for="' + input.id + '"]');
+          if (label) labelText = label.innerText ? label.innerText.trim() : '';
+        }
+        if (!labelText && input.parentElement) {
+          var parent = input.parentElement;
+          if (parent.tagName.toLowerCase() === 'label') {
+            labelText = parent.innerText ? parent.innerText.trim() : '';
+          }
+        }
+        if (labelText && labelText.length > 3) {
+          var checked = input.checked ? '☑' : '☐';
+          parts.push('<li>' + checked + ' ' + labelText + '</li>');
+        }
+      });
+      parts.push('</ul>');
+    }
+
+    return parts.join('\\n');
+  }
+
   var wrapper = document.createElement('div');
   Array.from(document.body.childNodes).forEach(function(child) {
-    var cloned = cloneWithShadow(child);
+    var cloned = cloneWithShadow(child, 0);
     if (cloned) wrapper.appendChild(cloned);
   });
+
+  // Prepend extracted question context for quiz pages
+  var questionContext = extractQuestionContext();
+  if (questionContext && questionContext.length > 50) {
+    return '<div class="extracted-question-context">' + questionContext + '</div>\\n' + wrapper.innerHTML;
+  }
 
   return wrapper.innerHTML;
 })()`;

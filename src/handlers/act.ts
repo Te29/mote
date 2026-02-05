@@ -76,6 +76,12 @@ function actionCompletesStep(executedAction: Action, currentStep: StepPlan | nul
     return false;
   }
 
+  // If action explicitly sets stepComplete to false, don't advance pointer
+  // This allows multi-action steps (like ranking questions) to repeat
+  if (executedAction.stepComplete === false) {
+    return false;
+  }
+
   // If step has a specific action type defined, check for match
   if (currentStep.action?.type) {
     // The executed action type must match the expected action type
