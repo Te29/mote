@@ -1,87 +1,79 @@
-# Step 1: Select an Incomplete Quiz
+# Step 1: Choose a Quiz
 
-You are selecting a quiz that needs to be taken or retried from a list of courses.
+## Overall Goal
 
-## Understanding the UI
+**Complete ALL quizzes** on the page until every test shows "Completed" status.
 
-Each course card/row contains:
-- **Course title** (e.g., "New Project Manager Essentials")
-- **Status indicator** near the title area:
-  - No status = Quiz never taken
-  - "Started" = Quiz attempted but NOT passed (needs retry)
-  - "Completed" = Quiz already passed (skip this one)
-- **Action buttons** on the right side:
-  - "Take test" = For quizzes never taken
-  - "Retake test" = For quizzes already attempted (both passed and failed)
-  - "Open course" = Opens course content (don't click this)
+## Process Flow
 
-## Selection Priority (IMPORTANT)
-
-Follow this priority order:
-
-1. **FIRST PRIORITY - Untouched quizzes:**
-   Look for any "Take test" button and click it.
-   These are quizzes that have never been attempted.
-
-2. **SECOND PRIORITY - Failed quizzes:**
-   If NO "Take test" buttons exist, look for course cards showing "Started" status.
-   Click the "Retake test" button for that card.
-   "Started" means the quiz was attempted but NOT passed.
-
-3. **SKIP - Completed quizzes:**
-   Do NOT click "Retake test" for courses showing "Completed" status.
-   These quizzes are already passed.
-
-## How to Identify Status
-
-The status indicator ("Started" or "Completed") appears:
-- Usually below or near the course title
-- Often with an icon (clock for Started, checkmark for Completed)
-- NOT near the button - check the full card/row context
-
-## Action
-
-Once you identify the correct button following the priority above:
-- Use the `click` action on that button's element index
-- Do NOT scroll first - scrolling is automatic
-
-## GOAL COMPLETION - CRITICAL
-
-**The goal is to complete ALL quizzes, not just one.**
-
-- After each quiz, you return to this selection page
-- Keep selecting and completing quizzes until NONE remain
-- **ONLY declare GOAL_SUCCESS when:**
-  - ALL courses show "Completed" status
-  - NO courses show "Start" or "Started" status
-  - NO "Take test" buttons visible for any course
-
-**DO NOT declare GOAL_SUCCESS after completing just ONE quiz!**
-
-## Example Decision Flow
-
-```
-Scan the page for course cards...
-
-Card 1: "Project Management" - Shows "Completed" - Has "Retake test" -> SKIP
-Card 2: "Business Ethics" - Shows "Started" - Has "Retake test" -> CANDIDATE (priority 2)
-Card 3: "Team Leadership" - No status shown - Has "Take test" -> CLICK THIS (priority 1)
+```text
+[YOU ARE HERE]
+     |
+     v
++------------------+     +------------------+     +------------------+
+| Step 1: Choose   | --> | Step 2: Start    | --> | Loop: Answer     |
+| Quiz             |     | Quiz             |     | Questions        |
++------------------+     +------------------+     +------------------+
+     ^                                                    |
+     |                   +------------------+             |
+     +-------------------| Step 6: Return   | <-----------+
+                         | to Selection     |
+                         +------------------+
 ```
 
-In this example, click the "Take test" button for Card 3 because priority 1 (untouched) beats priority 2 (failed).
+**Current Step:** You are on the quiz selection page. Either choose a quiz OR declare goal complete.
 
-## Example: When to Declare GOAL_SUCCESS
+## IMPORTANT: Check Goal Completion FIRST
 
+**BEFORE clicking anything, check if ALL quizzes are already completed:**
+
+1. Look at EVERY course card on the page
+2. Check if ALL of them show "Completed" status
+3. Check if there are ANY "Take test" buttons (not "Retake test")
+4. Check if there are ANY courses with "Started" status
+
+**If ALL courses show "Completed" AND there are NO "Take test" buttons AND NO "Started" status:**
+
+```json
+{
+  "resultType": "GOAL_SUCCESS",
+  "summary": "All quizzes completed - every test shows Completed status"
+}
 ```
-Scan the page for course cards...
 
-Card 1: "Project Management" - Shows "Completed" - Has "Retake test" -> SKIP (already passed)
-Card 2: "Business Ethics" - Shows "Completed" - Has "Retake test" -> SKIP (already passed)
-Card 3: "Team Leadership" - Shows "Completed" - Has "Retake test" -> SKIP (already passed)
+**DO NOT click "Retake test" on completed quizzes to "verify" - trust the status shown.**
 
-No "Take test" buttons found.
-No "Started" status quizzes found.
-ALL quizzes are "Completed".
+## If Quizzes Still Need Completion
 
--> NOW declare GOAL_SUCCESS: "All quizzes completed successfully."
+### Course Status Types
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| No status | Never attempted | Click "Take test" |
+| "Started" | Failed/incomplete | Click "Retake test" |
+| "Completed" | Already passed | DO NOT CLICK |
+
+### Selection Priority
+
+1. **First:** Click any "Take test" button (never attempted)
+2. **Second:** Click "Retake test" for "Started" status only
+3. **Never:** Click "Retake test" for "Completed" status
+
+### Action Format
+
+```json
+{
+  "action": {
+    "type": "click",
+    "elementId": "X",
+    "reason": "Taking/retaking [course name] quiz"
+  }
+}
 ```
+
+## Do NOT
+
+- Click "Open course" (opens course content, not quiz)
+- Click "Retake test" for courses showing "Completed" status
+- Click anything to "verify" when all statuses clearly show "Completed"
+- Declare GOAL_SUCCESS if ANY course still needs completion

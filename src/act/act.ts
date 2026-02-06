@@ -182,9 +182,46 @@ async function executeClick(
       });
     });
 
-    // Click at pre-computed coordinates — direct mouse event dispatched at
-    // the position humanMouseMove already landed on.  No auto-scroll, no retry.
-    if (clickPos) {
+    // For radio/checkbox inputs, click the parent/label element instead of the hidden input.
+    // Modern UI frameworks attach click handlers to the visible label, not the input.
+    const isRadio = resolvedElement.tag === 'input' && resolvedElement.inputType === 'radio';
+    const isCheckbox = resolvedElement.tag === 'input' && resolvedElement.inputType === 'checkbox';
+
+    if (isRadio || isCheckbox) {
+      // Click the parent label/container - this triggers the framework's handlers
+      // which properly update both visual state AND the input's checked property
+      await locator.evaluate((el) => {
+        const input = el as HTMLInputElement;
+        // Find the clickable parent: label, or ancestor with click handler
+        let clickTarget: HTMLElement | null = input.parentElement;
+
+        // Walk up to find label or container with role
+        while (clickTarget && clickTarget !== document.body) {
+          const tag = clickTarget.tagName.toLowerCase();
+          if (tag === 'label') break;
+          if (clickTarget.getAttribute('role') === 'radio' ||
+              clickTarget.getAttribute('role') === 'checkbox') break;
+          if (clickTarget.classList.toString().toLowerCase().includes('radio') ||
+              clickTarget.classList.toString().toLowerCase().includes('checkbox') ||
+              clickTarget.classList.toString().toLowerCase().includes('option') ||
+              clickTarget.classList.toString().toLowerCase().includes('answer')) break;
+          clickTarget = clickTarget.parentElement;
+        }
+
+        // Click the found target, or fall back to parent
+        if (clickTarget && clickTarget !== document.body) {
+          clickTarget.click();
+        } else if (input.parentElement) {
+          input.parentElement.click();
+        } else {
+          // Last resort: directly check the input
+          input.checked = true;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+    } else if (clickPos) {
+      // Click at pre-computed coordinates — direct mouse event dispatched at
+      // the position humanMouseMove already landed on.  No auto-scroll, no retry.
       await page.mouse.click(clickPos.x, clickPos.y);
     } else {
       // Fallback: bounding box was unavailable (hidden element etc.)
@@ -724,11 +761,11 @@ async function executeCheckbox(
     await humanMouseMove(page, element);
 
     if (desiredState === 'check') {
-      await locator.check();
+      await locator.check({ force: true });
     } else if (desiredState === 'uncheck') {
-      await locator.uncheck();
+      await locator.uncheck({ force: true });
     } else {
-      await locator.click();
+      await locator.click({ force: true });
     }
 
     await humanDelay(page, 150, 300);
@@ -979,7 +1016,37 @@ async function executeMultiClick(
     try {
       const clickPos = await humanMouseMove(page, resolvedElement);
 
-      if (clickPos) {
+      // For radio/checkbox inputs, click the parent/label element instead of the hidden input
+      const isRadio = resolvedElement.tag === 'input' && resolvedElement.inputType === 'radio';
+      const isCheckbox = resolvedElement.tag === 'input' && resolvedElement.inputType === 'checkbox';
+
+      if (isRadio || isCheckbox) {
+        await locator.evaluate((el) => {
+          const input = el as HTMLInputElement;
+          let clickTarget: HTMLElement | null = input.parentElement;
+
+          while (clickTarget && clickTarget !== document.body) {
+            const tag = clickTarget.tagName.toLowerCase();
+            if (tag === 'label') break;
+            if (clickTarget.getAttribute('role') === 'radio' ||
+                clickTarget.getAttribute('role') === 'checkbox') break;
+            if (clickTarget.classList.toString().toLowerCase().includes('radio') ||
+                clickTarget.classList.toString().toLowerCase().includes('checkbox') ||
+                clickTarget.classList.toString().toLowerCase().includes('option') ||
+                clickTarget.classList.toString().toLowerCase().includes('answer')) break;
+            clickTarget = clickTarget.parentElement;
+          }
+
+          if (clickTarget && clickTarget !== document.body) {
+            clickTarget.click();
+          } else if (input.parentElement) {
+            input.parentElement.click();
+          } else {
+            input.checked = true;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+      } else if (clickPos) {
         await page.mouse.click(clickPos.x, clickPos.y);
       } else {
         await locator.click({ timeout: 5000 });
@@ -989,7 +1056,7 @@ async function executeMultiClick(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Click failed';
       if (verbose) console.log(`   ⚠️ Standard click failed for [${index}]: ${message}. Trying JS fallback...`);
-      
+
       try {
         await locator.evaluate((el) => (el as HTMLElement).click());
         await page.waitForTimeout(500);

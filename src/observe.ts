@@ -172,7 +172,7 @@ export async function observe(
       if (hasScrollSpace) {
         await page.evaluate(async () => {
           const scrollStep = 500;
-          const scrollDelay = 100;
+          const scrollDelay = 150; // Slightly longer to allow lazy content to load
 
           // Force instant scrolling — if the page has scroll-behavior: smooth
           // via CSS, scrollTo/scrollBy animate asynchronously and would outlive
@@ -186,13 +186,25 @@ export async function observe(
           overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;background:white;pointer-events:none';
           document.body.prepend(overlay);
 
-          const totalHeight = document.documentElement.scrollHeight;
-          let currentPosition = 0;
+          // Keep scrolling until we can't scroll anymore (handles lazy-loaded content
+          // that increases page height as you scroll)
+          let lastScrollY = -1;
+          let stableCount = 0;
+          const maxIterations = 100; // Safety limit
+          let iterations = 0;
 
-          while (currentPosition < totalHeight) {
+          while (stableCount < 3 && iterations < maxIterations) {
+            iterations++;
             window.scrollBy({ top: scrollStep, behavior: 'auto' });
-            currentPosition += scrollStep;
             await new Promise(resolve => setTimeout(resolve, scrollDelay));
+
+            // Check if scroll position actually changed
+            if (window.scrollY === lastScrollY) {
+              stableCount++;
+            } else {
+              stableCount = 0;
+              lastScrollY = window.scrollY;
+            }
           }
 
           // Scroll back to top instantly, then tear down

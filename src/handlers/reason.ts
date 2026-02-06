@@ -320,6 +320,44 @@ export async function handleReason(
         }
 
         // ----------------------
+        // 0b. PAGE STATE CHECK (if configured)
+        // ----------------------
+        let pageStateMismatch = false;
+        let mismatchDescription = '';
+        if (currentStep.pageStateCheck) {
+          const { script, description, onMismatch = 'adjust' } = currentStep.pageStateCheck;
+          try {
+            const isValid = await ctx.runtime.activePage.evaluate(script);
+            if (!isValid) {
+              pageStateMismatch = true;
+              mismatchDescription = description;
+              console.log(`⚠️ Page state mismatch: ${description}`);
+
+              if (onMismatch === 'skip') {
+                console.log(`   ⏭️ Skipping step due to mismatch`);
+                // Advance to next step (inline logic)
+                if (ptr.length > 1) {
+                  ptr[1]++;  // Advance within loop
+                } else {
+                  ptr[0]++;  // Advance to next unit
+                }
+                return { phase: 'OBSERVE', cycleIndex: state.cycleIndex };
+              } else if (onMismatch === 'fail') {
+                return {
+                  phase: 'CYCLE_END',
+                  cycleIndex: state.cycleIndex,
+                  result: 'FAILURE',
+                  detail: `Page state mismatch: ${description}`,
+                };
+              }
+              // onMismatch === 'adjust' (default): continue and tell LLM about it
+            }
+          } catch (err) {
+            console.warn(`⚠️ pageStateCheck script failed:`, err);
+          }
+        }
+
+        // ----------------------
         // 1. LLM-DRIVEN STEP (llmRequired: true or undefined)
         // ----------------------
         // When llmRequired is true (default), use LLM to determine the action
@@ -346,6 +384,12 @@ export async function handleReason(
           // Build instruction for LLM
           const stepInstruction = currentStep.instruction || currentStep.description;
           const hints: string[] = [];
+
+          // Add page state mismatch warning if detected
+          if (pageStateMismatch) {
+            hints.push(`⚠️ PAGE STATE MISMATCH: ${mismatchDescription}. The current page may not be ready for this step. Consider if you need to: skip this step, wait, or take a different action.`);
+          }
+
           if (cssSelector) {
             hints.push(`Target element hint: ${cssSelector}`);
           }

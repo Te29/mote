@@ -301,6 +301,18 @@ export interface StepPlan {
    * Useful for SPAs, lazy loading, or pages with dynamic content.
    */
   waitForReady?: WaitForReadyConfig;
+
+  /**
+   * Page state validation script.
+   * Runs before step execution to check if current page matches expectations.
+   * Returns true if page is valid for this step, false if mismatch.
+   * When false, LLM is told about the mismatch and can adjust.
+   */
+  pageStateCheck?: {
+    script: string;
+    description: string;
+    onMismatch?: 'skip' | 'adjust' | 'fail';  // default: 'adjust'
+  };
 }
 
 /** 

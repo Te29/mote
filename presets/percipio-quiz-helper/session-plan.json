@@ -43,8 +43,8 @@
           "loopId": "loop-1770041570328",
           "loopCondition": {
             "verification": {
-              "script": "(() => { const buttons = Array.from(document.querySelectorAll('button')); const hasDone = buttons.some(btn => btn.textContent?.toLowerCase().includes('done')); const hasSubmit = buttons.some(btn => btn.textContent?.toLowerCase().includes('submit')); const hasQuizQuestions = document.querySelectorAll('input[type=\"radio\"], input[type=\"checkbox\"]').length > 0 || buttons.some(btn => btn.textContent?.includes('Move')); const onQuizPage = hasSubmit || hasQuizQuestions; return !hasDone && onQuizPage; })()",
-              "description": "Continue while on quiz page (has Submit/questions) and no Done button. Exit when Done appears OR no longer on quiz page."
+              "script": "(() => { const url = window.location.href; if (url.includes('/result')) return false; const hasSubmit = Array.from(document.querySelectorAll('button, a')).some(btn => btn.textContent?.toLowerCase().includes('submit')); const hasQuizInputs = document.querySelectorAll('input[type=\"radio\"], input[type=\"checkbox\"]').length > 0; return hasSubmit || hasQuizInputs; })()",
+              "description": "Continue while on quiz page (has Submit button or quiz inputs). Exit when URL contains '/result' or exitLoop flag is set by step-5."
             },
             "maxIterations": 100
           },
@@ -77,16 +77,17 @@
               }
             },
             {
-              "stepId": "step-5-click-to-answer-next-question",
-              "description": "click Next question button",
-              "instruction": "Click the 'Next question' button to proceed to the next question. Use the click action directly.",
-              "targetElementSelector": "button:has-text(\"Next question\")",
+              "stepId": "step-5-click-next-or-done",
+              "description": "Click Next question OR Done button",
+              "instruction": "Click 'Next question' to continue to next question, OR click 'Done' if this is the last question. When Done is clicked, set exitLoop to true.",
+              "targetElementSelector": "{desc:\"Next question button or Done button\"}",
               "llmRequired": true,
+              "promptRef": "./prompts/step-5-next-or-done.md",
               "waitForReady": {
-                "waitScript": "new Promise(resolve => { const check = () => { const btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent?.toLowerCase().includes('next')); if (btn && window.getComputedStyle(btn).display !== 'none' && !btn.disabled) resolve(); else setTimeout(check, 100); }; check(); })",
+                "waitScript": "new Promise(resolve => { const check = () => { const btns = Array.from(document.querySelectorAll('button, a')); const hasNext = btns.some(el => el.textContent?.toLowerCase().includes('next question')); const hasDone = btns.some(el => el.textContent?.trim().toLowerCase() === 'done'); if (hasNext || hasDone) resolve(); else setTimeout(check, 100); }; check(); })",
                 "timeout": 10000,
                 "onTimeout": "continue",
-                "description": "Wait for Next question button to be visible and enabled"
+                "description": "Wait for Next question or Done button"
               }
             }
           ]
@@ -96,11 +97,31 @@
   },
   "cycleEndSteps": [
     {
-      "stepId": "step-6-go-back-to-quiz-selection",
-      "description": "Return to quiz selection to continue with next quiz",
-      "instruction": "Click 'Back to track' to return to quiz selection page. This cycle completed ONE quiz - more quizzes may remain. Do NOT declare goal success yet.",
-      "targetElementSelector": "[aria-label=\"Back to track\"]",
-      "llmRequired": true
+      "stepId": "step-6a-close-modal",
+      "description": "Close feedback/rating modal if present",
+      "instruction": "If you see a feedback or rating modal with a 'Close' button, click it. If no modal is present, look for 'Back to track' button instead.",
+      "targetElementSelector": "{desc:\"Close button or Back to track\"}",
+      "llmRequired": true,
+      "waitForReady": {
+        "waitScript": "new Promise(resolve => { const check = () => { const btns = Array.from(document.querySelectorAll('button, a')); const hasClose = btns.some(el => el.textContent?.trim().toLowerCase() === 'close'); const hasBackToTrack = btns.some(el => el.textContent?.toLowerCase().includes('back to track')); if (hasClose || hasBackToTrack) resolve(); else setTimeout(check, 100); }; check(); })",
+        "timeout": 10000,
+        "onTimeout": "continue",
+        "description": "Wait for Close button or Back to track link"
+      }
+    },
+    {
+      "stepId": "step-6b-back-to-selection",
+      "description": "Click Back to track to return to quiz selection",
+      "instruction": "Click 'Back to track' to return to the quiz selection page where you can see all quizzes.",
+      "targetElementSelector": "{desc:\"Back to track link\"}",
+      "llmRequired": true,
+      "promptRef": "./prompts/step-6-return-to-selection.md",
+      "waitForReady": {
+        "waitScript": "new Promise((resolve, reject) => { let attempts = 0; const check = () => { attempts++; const allButtons = Array.from(document.querySelectorAll('button, a')); const testBtn = allButtons.find(el => { const text = (el.textContent || '').toLowerCase(); const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase(); const combined = text + ' ' + ariaLabel; return (combined.includes('take') || combined.includes('retake')) && (combined.includes('test') || combined.includes('quiz') || combined.includes('assessment')); }); if (testBtn) { console.log(`[waitForReady step-6b] Back at quiz selection after ${attempts} attempts`); resolve(); } else if (attempts > 300) { console.warn(`[waitForReady step-6b] Timeout after ${attempts} attempts`); reject(new Error('Not back at quiz selection after 300 attempts')); } else { setTimeout(check, 100); } }; check(); })",
+        "timeout": 30000,
+        "onTimeout": "continue",
+        "description": "Wait until back at quiz selection page (sees Take test or Retake test buttons)"
+      }
     }
   ],
   "wrapupSteps": []

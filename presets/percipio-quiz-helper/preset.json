@@ -1,12 +1,13 @@
 {
   "name": "percipio-quiz-helper",
-  "description": "finish all the online quizzes",
+  "description": "Complete all quizzes until every test shows 'Completed' status",
   "goal": {
-    "name": "finish all the online quizzes",
-    "description": "finish all the online quizzes",
+    "name": "Complete all quizzes",
+    "description": "Complete all quizzes on the page. Goal is achieved when ALL tests show 'Completed' status - no 'Start' or 'Started' status remaining on the quiz selection page.",
     "context": {}
   },
   "startUrl": "",
   "sessionPlanRef": "./session-plan.json",
-  "engagementMode": "autonomous"
+  "engagementMode": "autonomous",
+  "maxSteps": -1
 }

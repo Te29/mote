@@ -84,6 +84,11 @@ export async function handleCycleStart(
   // Reset per-cycle drift tracking
   ctx.runtime.currentCycleDrifts = [];
 
+  // Reset execution pointer for the new cycle's blueprint
+  // This ensures each cycle starts at unit 0 of the cyclePlan
+  ctx.runtime.executionPointer = [0];
+  ctx.runtime.loopStates = {};
+
   // CYCLE_START Intervention
   if (shouldIntervene(ctx.engagementMode, 'CYCLE_START')) {
     const response = await requestIntervention('CYCLE_START', {
@@ -244,7 +249,12 @@ export async function handleCycleStart(
           actionToExecute = llmResult.action;
         } else if (llmResult.type === 'GOAL_SUCCESS') {
           console.log(`   ✓ LLM reports goal success: ${llmResult.finalAnswer}`);
-          // Continue - step is successful
+          // Goal achieved during cycle-start - terminate session successfully
+          return {
+            phase: 'TERMINATED',
+            success: true,
+            message: llmResult.finalAnswer,
+          };
         } else if (llmResult.type === 'FAIL') {
           console.log(`   ✗ LLM failed: ${llmResult.error}`);
           success = false;
@@ -479,6 +489,12 @@ export async function handleCycleEnd(
             actionToExecute = llmResult.action;
           } else if (llmResult.type === 'GOAL_SUCCESS') {
             console.log(`   ✓ LLM reports goal success: ${llmResult.finalAnswer}`);
+            // Goal achieved during cycle-end - terminate session successfully
+            return {
+              phase: 'TERMINATED',
+              success: true,
+              message: llmResult.finalAnswer,
+            };
           } else if (llmResult.type === 'FAIL') {
             console.log(`   ✗ LLM failed: ${llmResult.error}`);
             success = false;
