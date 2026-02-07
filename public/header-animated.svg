@@ -31,7 +31,14 @@
     .m34{animation:f4 8s ease-in-out 6.2s infinite} .m35{animation:d2 9s ease-in-out .4s infinite} .m36{animation:f1 7s ease-in-out 3.6s infinite}
     .m37{animation:d3 11s ease-in-out 1.9s infinite} .m38{animation:f3 8s ease-in-out 5.3s infinite} .m39{animation:d4 6s ease-in-out 2.6s infinite}
     .m40{animation:f5 9s ease-in-out 4.4s infinite}
+    .bg { fill: transparent; }
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #0d1117; }
+    }
   </style>
+
+  <!-- Theme-adaptive background: visible in light mode so white text remains readable -->
+  <rect class="bg" x="0" y="0" width="1500" height="500" rx="16"/>
 
   <!-- Dust particles - gold/amber tones -->
   <circle class="mote m1" cx="120" cy="380" r="4.5" fill="#F5A623"/>
