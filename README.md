@@ -1,14 +1,8 @@
-# Mote
+<p align="center">
+  <img src="public/header.png" alt="Mote" />
+</p>
 
-> A lightweight browser automation agent framework powered by AI
-
-Mote is designed to turn human workflows into reliable, repeatable automation pipelines. Rather than relying on end-to-end black-box autonomy, Mote adopts a **methodology-first agent design**, combining scripted steps with AI-assisted decisions through a clear lifecycle:
-
-```
-record → normalize → execute → validate
-```
-
-The system supports varying levels of human oversight, allowing LLMs to be orchestrated along predefined code paths. Mote is a practical and approachable starting point for experiencing what it means to **give AI a pair of hands**.
+Mote is a lightweight browser automation agent framework powered by AI. It turns human workflows into reliable, repeatable automation pipelines through a **methodology-first agent design** — combining scripted steps with AI-assisted decisions across a clear `record → normalize → execute → validate` lifecycle. With varying levels of human oversight and LLMs orchestrated along predefined code paths, Mote is a practical starting point for experiencing what it means to **give AI a pair of hands**.
 
 ## Features
 
@@ -101,15 +95,6 @@ That's it! Mote will launch a browser and guide you through creating your first 
 ## Learn More
 
 <details>
-<summary><strong>LLM Configuration Guide</strong></summary>
-
-### LLM Configuration Guide
-
-*(Content to be added)*
-
-</details>
-
-<details>
 <summary><strong>Architecture Deep Dive</strong></summary>
 
 ### Architecture Deep Dive
@@ -196,73 +181,85 @@ The Human-in-the-Loop acts as a manual *path evaluator*. When the agent reaches 
 <details>
 <summary><strong>Folder Structure</strong></summary>
 
-### Folder Structure
-
 ```
 mote/
 ├── src/
-│   ├── core/                    # THE ORCHESTRATOR
-│   │   ├── Mote.ts              # Entry point: coordinates Perception -> Reasoning -> Execution
-│   │   ├── SessionManager.ts    # Manages browser context and lifecycle
-│   │   └── StateStore.ts        # Tracks short-term memory and task progress
+│   ├── mote.ts                  # Entry point: orchestrates the state machine
+│   ├── browser.ts               # Playwright browser context management
+│   ├── observe.ts               # Perception: page sweep, element extraction, markdown generation
+│   ├── reason.ts                # Reasoning: LLM-based action planning
+│   ├── prompt.ts                # System/user prompt templates for LLM
+│   ├── interaction.ts           # Human-in-the-loop intervention system
 │   │
-│   ├── perception/              # THE "EYE" LAYER
-│   │   ├── Crawler.ts           # Playwright wrapper for page navigation
-│   │   ├── Cleaner.ts           # Logic to strip scripts, styles, and hidden junk
-│   │   ├── Mapper.ts            # Assigns numerical IDs [1] to interactive elements
-│   │   └── Marketer.ts          # Formats cleaned HTML + Map into LLM-friendly Markdown
+│   ├── act/                     # Action execution layer
+│   │   ├── act.ts               # executeAction: click, type, scroll, navigate, etc.
+│   │   ├── helpers.ts           # humanMouseMove, humanType, humanDelay
+│   │   └── element-resolution.ts # verifyOrResolve, fuzzyMatchElement
 │   │
-│   ├── reasoning/               # THE "BRAIN" LAYER
-│   │   ├── Planner.ts           # The ReAct Loop (Think -> Act -> Observe)
-│   │   ├── ModelProvider.ts     # Interface for Ollama, OpenAI, or Anthropic
-│   │   ├── PromptEngine.ts      # Template manager for System and User prompts
-│   │   └── Evaluator.ts         # Self-correction logic: "Did the action work?"
+│   ├── handlers/                # State machine handlers
+│   │   ├── setup.ts             # SETUP: initialization and setup steps
+│   │   ├── cycle.ts             # CYCLE_START / CYCLE_END: cycle lifecycle
+│   │   ├── observe.ts           # OBSERVE: page perception
+│   │   ├── reason.ts            # REASON: blueprint execution and LLM reasoning
+│   │   ├── act.ts               # ACT: action execution and pointer advancement
+│   │   └── wrapup.ts            # WRAPUP: session finalization
 │   │
-│   ├── execution/               # THE "HAND" LAYER
-│   │   ├── tools/               # Atomic "Verbs" (Internal)
-│   │   │   ├── ClickTool.ts     # Locates by ID and clicks
-│   │   │   ├── InputTool.ts     # Handles typing and form filling
-│   │   │   └── ScrollTool.ts    # Handles page movement
-│   │   └── skills/              # Domain-specific "Personas" (External)
-│   │       ├── BaseSkill.ts     # Abstract class defining the Skill contract
-│   │       ├── JobSkill.ts      # Logic for LinkedIn/Indeed workflows
-│   │       └── ResearchSkill.ts # Logic for deep-diving documentation
+│   ├── bootstrap/               # Session bootstrapping
+│   │   ├── bootstrap.ts         # Initialize session from preset or goal
+│   │   └── plan-preview.ts      # Preview session plan before execution
 │   │
-│   ├── common/                  # THE "NERVOUS SYSTEM"
-│   │   ├── types/               # Centralized TypeScript Interfaces
-│   │   │   ├── perception.ts    # Payload definitions
-│   │   │   └── reasoning.ts     # Action/Thought definitions
-│   │   ├── Logger.ts            # Console logs + Trace recording
-│   │   ├── Constants.ts         # Default timeouts, URLs, and configs
-│   │   └── Utils.ts             # Small, pure helper functions
+│   ├── config/                  # Configuration
+│   │   ├── defaults.ts          # Default settings
+│   │   └── resolver.ts          # Config resolution and merging
 │   │
-│   └── index.ts                 # Main library export
+│   ├── recorder/                # Workflow recorder
+│   │   ├── runtime.ts           # Recorder runtime loop
+│   │   ├── page-observer.ts     # DOM observation and element tracking
+│   │   ├── interceptor.ts       # Network/action interception
+│   │   ├── llm-generator.ts     # Generate session plans from recordings
+│   │   └── handlers/            # Recording state handlers
+│   │
+│   ├── runtime/                 # Agent runtime
+│   │   ├── runtime.ts           # Runtime state and context management
+│   │   └── result.ts            # Session result formatting
+│   │
+│   ├── types/                   # TypeScript type definitions
+│   │   ├── actions.ts           # Action, StepPlan, SessionPlan types
+│   │   ├── config.ts            # Configuration types
+│   │   ├── context.ts           # AgentContext, RuntimeState
+│   │   ├── page.ts              # PageState, Element types
+│   │   ├── session.ts           # Session tracker, cycle management
+│   │   ├── state-machine.ts     # State machine phase definitions
+│   │   ├── services.ts          # Service interfaces
+│   │   └── results.ts           # Result types
+│   │
+│   └── utils/                   # Utilities
+│       ├── checkpoint.ts        # Session checkpoint save/restore
+│       ├── debug.ts             # Debug logging helpers
+│       ├── handler-helpers.ts   # Shared handler utilities
+│       ├── preset.ts            # Preset loading, prompt rendering
+│       └── verification.ts      # Script/LLM-based verification
 │
-├── data/                        # LOCAL STORAGE (Privacy-First)
-│   ├── evidence/                # Screenshots and session traces
-│   └── logs/                    # Execution history (JSON/Text)
+├── presets/                     # Automation presets
+│   ├── _template/               # Template for creating new presets
+│   └── percipio-quiz-helper/    # Example: auto-complete quizzes
+│       ├── preset.json          # Preset metadata and settings
+│       ├── session-plan.json    # Step-by-step execution plan
+│       └── prompts/             # Step-specific LLM prompts
 │
-├── examples/                    # EDUCATIONAL BOILERPLATE
-│   ├── basic-search.ts          # Simple tutorial
-│   └── job-hunting-demo.ts      # Multi-step skill demo
-│
-├── tests/                       # TEST SUITE
-│   ├── unit/                    # Testing individual Layers
-│   └── integration/             # Testing full ReAct loops
-│
-├── .env.example                 # Template for LLM API keys
-├── .gitignore                   # Ignores /data and node_modules
-├── package.json                 # Project dependencies
-├── tsconfig.json                # TypeScript configuration
-└── README.md                    # The "Mote" philosophy and setup guide
+├── tests/                       # Test suite (vitest)
+├── data/                        # Session logs and traces
+├── docs/                        # Documentation
+├── package.json
+├── tsconfig.json
+├── vitest.config.ts
+└── README.md
 ```
 
 </details>
 
 <details>
 <summary><strong>How do presets work</strong></summary>
-
-### How do presets work
 
 *(Content to be added)*
 
