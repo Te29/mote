@@ -259,7 +259,106 @@ mote/
 <details>
 <summary><strong>How do presets work</strong></summary>
 
-*(Content to be added)*
+Presets are reusable automation packages that bundle a task definition, execution blueprint, and configuration overrides into a single folder. They let you capture a workflow once and replay it reliably.
+
+#### Preset folder structure
+
+Each preset lives under `presets/{name}/`:
+
+```
+presets/percipio-quiz-helper/
+├── preset.json              # Task definition and settings
+├── session-plan.json        # Step-by-step execution blueprint
+├── system-prompt.md         # Custom LLM system prompt (optional)
+└── prompts/                 # Step-specific LLM prompts (optional)
+    ├── step-1-choose-quiz.md
+    └── step-3-answer-question.md
+```
+
+Folders starting with `_` or `.` (like `_template/`) are ignored when listing presets.
+
+#### preset.json
+
+Defines what the preset does and how the agent should behave:
+
+```json
+{
+  "name": "percipio-quiz-helper",
+  "description": "Complete all quizzes until every test shows 'Completed' status",
+  "goal": {
+    "name": "Complete all quizzes",
+    "description": "Navigate through each quiz and answer all questions",
+    "context": {}
+  },
+  "sessionPlanRef": "./session-plan.json",
+  "engagementMode": "autonomous",
+  "maxSteps": -1
+}
+```
+
+A preset can override any configurable setting — browser options (`headless`, `stealth`, `slowMo`), timeouts, LLM provider/model, token limits, engagement mode, and step limits. These override defaults and environment variables but can still be overridden programmatically at runtime.
+
+**Config priority:** CLI/programmatic overrides > preset values > environment variables > defaults.
+
+#### Session plan (the execution blueprint)
+
+The session plan is the core of a preset. It defines a structured execution flow:
+
+```text
+setup → [cycleStart → cycle → cycleEnd] × N → wrapup → verification
+```
+
+- **Setup steps** run once at the start (e.g., navigate to a page, log in)
+- **Cycle steps** repeat N times (or indefinitely with `numberOfCycles: -1`)
+- **Wrapup steps** run once at the end
+
+Each step can be:
+
+| Mode | When | Example |
+| ---- | ---- | ------- |
+| **Direct execution** | `llmRequired: false` + `action` provided | Click a known button by selector |
+| **LLM-assisted** | `llmRequired: true` or semantic selector | "Find the incomplete quiz and click it" |
+| **Hybrid** | Step prompt + selector hint | LLM reasons with domain-specific guidance |
+
+**Semantic selectors** like `{desc:"the Submit button"}` tell the LLM to find the right element by description rather than a fixed CSS selector, making presets resilient to UI changes.
+
+**Loops** allow repeating a group of steps within a cycle — either a fixed number of iterations or until a JavaScript condition evaluates to true.
+
+**Verification scripts** are JavaScript functions that run after phases (setup, cycle, wrapup) to confirm success. On failure, the agent can retry with LLM assistance, continue, or abort.
+
+**Wait-for-ready hooks** handle async content (SPAs, lazy-loaded pages) by running a JavaScript promise that resolves when the page is ready before the step executes.
+
+#### Step prompts
+
+Step prompts are Markdown files that give the LLM domain-specific guidance for individual steps. They support template variables:
+
+- `{{instruction}}` — the step's instruction field
+- `{{context.KEY}}` — values from `goal.context`
+- `{{goal}}` — the full goal object
+
+This lets you inject runtime context (e.g., credentials, search terms) into step-level reasoning without hardcoding them.
+
+#### Engagement modes
+
+Presets can set the level of human oversight:
+
+| Mode | Behavior |
+| ---- | -------- |
+| `autonomous` | Agent runs independently |
+| `minimal` | Human consulted only on errors |
+| `standard` | Human confirms key decisions |
+| `supervised` | Human approves each action |
+| `full` | Human controls everything |
+
+#### Creating a new preset
+
+1. Copy `presets/_template/` to `presets/your-preset-name/`
+2. Edit `preset.json` with your goal and settings
+3. Define your session plan in `session-plan.json`
+4. Add step prompts under `prompts/` as needed
+5. Run with `npm start` and select your preset
+
+Alternatively, use the **recorder** to capture a workflow interactively — it generates a session plan from your actions automatically.
 
 </details>
 
