@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/header.png" alt="Mote" />
+  <img src="public/header-animated.svg" alt="Mote" />
 </p>
 
 Mote is a lightweight browser automation agent framework powered by AI. It turns human workflows into reliable, repeatable automation pipelines through a **methodology-first agent design** — combining scripted steps with AI-assisted decisions across a clear `record → normalize → execute → validate` lifecycle. With varying levels of human oversight and LLMs orchestrated along predefined code paths, Mote is a practical starting point for experiencing what it means to **give AI a pair of hands**.
@@ -96,8 +96,6 @@ That's it! Mote will launch a browser and guide you through creating your first 
 
 <details>
 <summary><strong>Architecture Deep Dive</strong></summary>
-
-### Architecture Deep Dive
 
 Mote implements the **ReAct (Reason + Act)** paradigm, ensuring the agent doesn't blindly click around, but follows a structured loop:
 

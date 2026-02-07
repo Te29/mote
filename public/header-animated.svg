@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1500 500" width="1500" height="500">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- White background -->
+  <rect width="1500" height="500" fill="#ffffff"/>
+
+  <!-- Animated dust particles -->
+  <style>
+    .mote { opacity: 0; }
+    @keyframes float1 { 0%{transform:translate(0,0);opacity:0} 15%{opacity:0.8} 85%{opacity:0.6} 100%{transform:translate(40px,-60px);opacity:0} }
+    @keyframes float2 { 0%{transform:translate(0,0);opacity:0} 20%{opacity:0.7} 80%{opacity:0.5} 100%{transform:translate(-30px,-50px);opacity:0} }
+    @keyframes float3 { 0%{transform:translate(0,0);opacity:0} 10%{opacity:0.6} 90%{opacity:0.4} 100%{transform:translate(50px,-40px);opacity:0} }
+    @keyframes float4 { 0%{transform:translate(0,0);opacity:0} 25%{opacity:0.5} 75%{opacity:0.3} 100%{transform:translate(-20px,-70px);opacity:0} }
+    @keyframes float5 { 0%{transform:translate(0,0);opacity:0} 15%{opacity:0.9} 85%{opacity:0.5} 100%{transform:translate(30px,40px);opacity:0} }
+    @keyframes drift1 { 0%{transform:translate(0,0);opacity:0} 20%{opacity:0.6} 80%{opacity:0.4} 100%{transform:translate(60px,-30px);opacity:0} }
+    @keyframes drift2 { 0%{transform:translate(0,0);opacity:0} 15%{opacity:0.7} 85%{opacity:0.3} 100%{transform:translate(-40px,30px);opacity:0} }
+    .m1 { animation: float1 6s ease-in-out infinite; }
+    .m2 { animation: float2 8s ease-in-out 1s infinite; }
+    .m3 { animation: float3 7s ease-in-out 2s infinite; }
+    .m4 { animation: float4 9s ease-in-out 0.5s infinite; }
+    .m5 { animation: float5 5s ease-in-out 3s infinite; }
+    .m6 { animation: drift1 10s ease-in-out 1.5s infinite; }
+    .m7 { animation: drift2 7s ease-in-out 4s infinite; }
+    .m8 { animation: float1 8s ease-in-out 2.5s infinite; }
+    .m9 { animation: float2 6s ease-in-out 5s infinite; }
+    .m10 { animation: float3 9s ease-in-out 0.8s infinite; }
+    .m11 { animation: drift1 7s ease-in-out 3.5s infinite; }
+    .m12 { animation: float4 11s ease-in-out 1.2s infinite; }
+    .m13 { animation: float5 6s ease-in-out 4.5s infinite; }
+    .m14 { animation: drift2 8s ease-in-out 2s infinite; }
+    .m15 { animation: float1 10s ease-in-out 6s infinite; }
+    .m16 { animation: float2 7s ease-in-out 3s infinite; }
+    .m17 { animation: drift1 9s ease-in-out 0.3s infinite; }
+    .m18 { animation: float3 6s ease-in-out 5.5s infinite; }
+    .m19 { animation: float4 8s ease-in-out 1.8s infinite; }
+    .m20 { animation: drift2 11s ease-in-out 4s infinite; }
+    .m21 { animation: float5 7s ease-in-out 2.2s infinite; }
+    .m22 { animation: float1 9s ease-in-out 3.8s infinite; }
+    .m23 { animation: drift1 6s ease-in-out 5.2s infinite; }
+    .m24 { animation: float2 10s ease-in-out 0.6s infinite; }
+  </style>
+
+  <!-- Gold/amber particles (matching the M logo color) -->
+  <circle class="mote m1" cx="120" cy="380" r="3" fill="#F5A623"/>
+  <circle class="mote m2" cx="350" cy="420" r="2" fill="#F7C948"/>
+  <circle class="mote m3" cx="80" cy="200" r="2.5" fill="#E8962E"/>
+  <circle class="mote m4" cx="500" cy="350" r="1.8" fill="#FFD466"/>
+  <circle class="mote m5" cx="250" cy="100" r="3.5" fill="#F5A623"/>
+  <circle class="mote m6" cx="700" cy="450" r="2" fill="#F7C948"/>
+  <circle class="mote m7" cx="900" cy="380" r="2.8" fill="#E8962E"/>
+  <circle class="mote m8" cx="1100" cy="420" r="2" fill="#FFD466"/>
+  <circle class="mote m9" cx="1300" cy="350" r="3" fill="#F5A623"/>
+  <circle class="mote m10" cx="1400" cy="200" r="2.2" fill="#F7C948"/>
+  <circle class="mote m11" cx="1200" cy="100" r="1.5" fill="#E8962E"/>
+  <circle class="mote m12" cx="600" cy="80" r="2.5" fill="#FFD466"/>
+  <circle class="mote m13" cx="800" cy="150" r="2" fill="#F5A623"/>
+  <circle class="mote m14" cx="1050" cy="250" r="3" fill="#F7C948"/>
+  <circle class="mote m15" cx="150" cy="450" r="1.8" fill="#E8962E"/>
+  <circle class="mote m16" cx="450" cy="150" r="2.5" fill="#FFD466"/>
+  <circle class="mote m17" cx="1350" cy="450" r="2" fill="#F5A623"/>
+  <circle class="mote m18" cx="950" cy="50" r="3.2" fill="#F7C948"/>
+  <circle class="mote m19" cx="50" cy="300" r="1.5" fill="#E8962E"/>
+  <circle class="mote m20" cx="750" cy="480" r="2.8" fill="#FFD466"/>
+  <circle class="mote m21" cx="1450" cy="120" r="2" fill="#F5A623"/>
+  <circle class="mote m22" cx="550" cy="460" r="2.5" fill="#F7C948"/>
+  <circle class="mote m23" cx="200" cy="50" r="1.8" fill="#FFD466"/>
+  <circle class="mote m24" cx="1000" cy="480" r="3" fill="#E8962E"/>
+
+  <!-- Soft glow particles -->
+  <circle class="mote m5" cx="300" cy="300" r="8" fill="url(#glow)" opacity="0.15"/>
+  <circle class="mote m9" cx="1100" cy="150" r="10" fill="url(#glow)" opacity="0.1"/>
+  <circle class="mote m13" cx="700" cy="400" r="7" fill="url(#glow)" opacity="0.12"/>
+  <circle class="mote m17" cx="1300" cy="300" r="9" fill="url(#glow)" opacity="0.08"/>
+
+  <!-- Header image overlay -->
+  <image href="header.png" x="0" y="0" width="1500" height="500"/>
+</svg>
