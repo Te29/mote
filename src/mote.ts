@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { config } from 'dotenv';
+import path from 'path';
 import type { AgentResult, SessionTracker } from './types/index.js';
 import { createTimestamp } from './types/index.js';
 import {
@@ -249,18 +250,49 @@ export { extractPathFromHistory } from './runtime/result.js';
 // -----------------------------------------------------------------------------
 
 import { bootstrapRecorder, executeRecorder } from './recorder/index.js';
+import { getPresetsDir } from './utils/preset.js';
+
+/**
+ * Parse CLI arguments to extract --preset value.
+ * Supports both --preset=name and --preset name formats.
+ */
+function parsePresetArg(): string | undefined {
+  const args = process.argv;
+  for (let i = 0; i < args.length; i++) {
+    // Handle --preset=name format
+    if (args[i].startsWith('--preset=')) {
+      return args[i].substring('--preset='.length);
+    }
+    // Handle --preset name format
+    if (args[i] === '--preset' && i + 1 < args.length && !args[i + 1].startsWith('-')) {
+      return args[i + 1];
+    }
+  }
+  return undefined;
+}
 
 /**
  * Run the preset recorder - interactive mode to create presets by recording actions.
+ * 
+ * @param presetName - Optional preset name to resume from existing checkpoint
  */
-export async function runRecorder(): Promise<void> {
+export async function runRecorder(presetName?: string): Promise<void> {
   console.log('\n🎬 Starting Mote Recorder...\n');
+
+  // Resolve preset directory if name provided
+  let resumePresetDir: string | undefined;
+  if (presetName) {
+    const presetsDir = getPresetsDir();
+    resumePresetDir = path.join(presetsDir, presetName);
+    console.log(`📂 Resuming preset: ${presetName}`);
+  }
 
   try {
     const { context, presetDir } = await bootstrapRecorder({
       llmBaseUrl: process.env.LLM_BASE_URL,
       llmApiKey: process.env.LLM_API_KEY,
       llmModel: process.env.LLM_MODEL,
+      resumePresetDir,
     });
 
     const result = await executeRecorder(context);
@@ -290,7 +322,8 @@ import { pathToFileURL } from 'url';
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   // Check for --record flag
   if (process.argv.includes('--record')) {
-    runRecorder();
+    const presetName = parsePresetArg();
+    runRecorder(presetName);
   } else {
     runAgent().then((result) => {
       if (!result.success) {

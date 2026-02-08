@@ -6,6 +6,7 @@
   "main": "src/mote.ts",
   "scripts": {
     "start": "tsx src/mote.ts",
+    "record": "tsx src/mote.ts --record",
     "dev": "tsx watch src/mote.ts",
     "test": "vitest --exclude **/live.test.ts",
     "test:live": "vitest run --exclude **/mock.test.ts",
